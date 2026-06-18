@@ -1,7 +1,13 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.db.session import get_db_session
+
 
 app = FastAPI(
-    title="Connect Do API",
+    title=settings.app_name,
     description="Backend oficial de la aplicación móvil Connect Do.",
     version="0.1.0",
 )
@@ -13,4 +19,17 @@ async def health_check() -> dict[str, str]:
         "status": "ok",
         "service": "connect-do-api",
         "version": "0.1.0",
+        "environment": settings.app_env,
+    }
+
+
+@app.get("/health/database", tags=["Health"])
+async def database_health_check(
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, str]:
+    await session.execute(text("SELECT 1"))
+
+    return {
+        "status": "ok",
+        "database": "postgresql",
     }
