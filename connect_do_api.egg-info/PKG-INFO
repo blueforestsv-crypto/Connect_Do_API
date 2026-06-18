@@ -9,6 +9,9 @@ Requires-Dist: asyncpg
 Requires-Dist: alembic
 Requires-Dist: pydantic-settings
 Requires-Dist: psycopg[binary]
+Requires-Dist: pwdlib[argon2]
+Requires-Dist: PyJWT
+Requires-Dist: email-validator
 Provides-Extra: dev
 Requires-Dist: pytest; extra == "dev"
 Requires-Dist: pytest-asyncio; extra == "dev"

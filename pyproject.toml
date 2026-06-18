@@ -15,6 +15,9 @@ dependencies = [
     "alembic",
     "pydantic-settings",
     "psycopg[binary]",
+    "pwdlib[argon2]",
+    "PyJWT",
+    "email-validator",
 ]
 
 [project.optional-dependencies]

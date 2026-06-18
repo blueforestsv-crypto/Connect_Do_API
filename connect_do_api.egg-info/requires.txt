@@ -4,6 +4,9 @@ asyncpg
 alembic
 pydantic-settings
 psycopg[binary]
+pwdlib[argon2]
+PyJWT
+email-validator
 
 [dev]
 pytest

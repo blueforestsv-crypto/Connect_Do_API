@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.routes import auth_router
 from app.core.config import settings
 from app.db.session import get_db_session
 
@@ -11,6 +12,8 @@ app = FastAPI(
     description="Backend oficial de la aplicación móvil Connect Do.",
     version="0.1.0",
 )
+
+app.include_router(auth_router)
 
 
 @app.get("/health", tags=["Health"])
