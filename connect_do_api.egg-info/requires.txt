@@ -1,0 +1,12 @@
+fastapi[standard]
+sqlalchemy[asyncio]
+asyncpg
+alembic
+pydantic-settings
+psycopg[binary]
+
+[dev]
+pytest
+pytest-asyncio
+httpx
+ruff
