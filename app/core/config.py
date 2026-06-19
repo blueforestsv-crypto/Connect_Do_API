@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     app_debug: bool = True
 
     database_url: str
+    refresh_token_expire_days: int = 30
 
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
