@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
+from app.models.profile import Profile
 from app.schemas.user import UserCreate
 from app.services.security import hash_password
 from app.services.security import verify_password
@@ -38,7 +39,12 @@ async def create_user(
         last_name=user_data.last_name.strip(),
     )
 
+    profile = Profile(
+        user=user,
+    )
+
     session.add(user)
+    session.add(profile)
 
     try:
         await session.commit()
