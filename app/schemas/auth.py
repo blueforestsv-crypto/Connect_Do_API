@@ -1,4 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
 
 
 class TokenResponse(BaseModel):
@@ -9,3 +14,4 @@ class TokenResponse(BaseModel):
 class TokenPayload(BaseModel):
     sub: str
     exp: int
+    type: str

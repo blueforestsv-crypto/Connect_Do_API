@@ -2,9 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
+from app.schemas.auth import LoginRequest, TokenResponse
 from app.schemas.user import UserCreate, UserResponse
-from app.services.user_service import create_user, get_user_by_email
-
+from app.services.security import create_access_token
+from app.services.user_service import (
+    authenticate_user,
+    create_user,
+    get_user_by_email,
+)
 
 router = APIRouter(
     prefix="/auth",
@@ -39,3 +44,34 @@ async def register_user(
     )
 
     return UserResponse.model_validate(user)
+
+
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Iniciar sesión",
+)
+async def login_user(
+    login_data: LoginRequest,
+    session: AsyncSession = Depends(get_db_session),
+) -> TokenResponse:
+    user = await authenticate_user(
+        session=session,
+        email=str(login_data.email),
+        password=login_data.password,
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Correo o contraseña incorrectos.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = create_access_token(
+        subject=str(user.id),
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+    )
