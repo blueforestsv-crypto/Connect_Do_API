@@ -5,6 +5,7 @@ from app.models.user import User
 from app.schemas.user import UserCreate
 from app.services.security import hash_password
 from app.services.security import verify_password
+import uuid
 
 
 async def get_user_by_email(
@@ -17,6 +18,13 @@ async def get_user_by_email(
     result = await session.execute(statement)
 
     return result.scalar_one_or_none()
+
+
+async def get_user_by_id(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+) -> User | None:
+    return await session.get(User, user_id)
 
 
 async def create_user(

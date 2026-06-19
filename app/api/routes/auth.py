@@ -10,6 +10,8 @@ from app.services.user_service import (
     create_user,
     get_user_by_email,
 )
+from app.api.dependencies import get_current_user
+from app.models.user import User
 
 router = APIRouter(
     prefix="/auth",
@@ -75,3 +77,14 @@ async def login_user(
     return TokenResponse(
         access_token=access_token,
     )
+
+
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    summary="Obtener usuario autenticado",
+)
+async def get_authenticated_user(
+    current_user: User = Depends(get_current_user),
+) -> UserResponse:
+    return UserResponse.model_validate(current_user)
