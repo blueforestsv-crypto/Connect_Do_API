@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
+    email_verification_token_expire_minutes: int = 30
+    email_verification_resend_seconds: int = 60
+    email_verification_url: str = (
+        "http://localhost:8000/auth/email-verification/confirm"
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

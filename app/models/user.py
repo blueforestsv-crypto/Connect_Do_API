@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models.profile import Profile
+    from app.models.email_verification_token import EmailVerificationToken
 
 
 class User(Base):
@@ -72,4 +73,9 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+
+    email_verification_tokens: Mapped[list["EmailVerificationToken"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
     )

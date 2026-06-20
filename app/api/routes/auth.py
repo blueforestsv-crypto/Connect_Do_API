@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
@@ -28,6 +28,19 @@ from app.services.user_service import (
     create_user,
     get_user_by_email,
     get_user_by_id,
+)
+
+from app.core.config import settings
+from app.schemas.email_verification import (
+    EmailVerificationConfirm,
+    EmailVerificationRequest,
+    EmailVerificationResponse,
+)
+from app.services.email_service import send_verification_email
+from app.services.email_verification_service import (
+    can_issue_verification_token,
+    confirm_email_verification,
+    create_email_verification_token,
 )
 
 
@@ -213,3 +226,87 @@ async def get_authenticated_user(
     current_user: User = Depends(get_current_user),
 ) -> UserResponse:
     return UserResponse.model_validate(current_user)
+
+
+## =====================================================
+# VERIFICACIÓN DE CORREO
+# =====================================================
+@router.post(
+    "/email-verification/request",
+    response_model=EmailVerificationResponse,
+    summary="Solicitar verificación de correo",
+)
+async def request_email_verification(
+    request_data: EmailVerificationRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_db_session),
+) -> EmailVerificationResponse:
+    neutral_message = (
+        "Si la cuenta existe y requiere verificación, "
+        "se enviaron las instrucciones correspondientes."
+    )
+
+    user = await get_user_by_email(
+        session=session,
+        email=str(request_data.email),
+    )
+
+    if user is None or user.is_verified or not user.is_active:
+        return EmailVerificationResponse(
+            message=neutral_message,
+        )
+
+    can_issue = await can_issue_verification_token(
+        session=session,
+        user_id=user.id,
+    )
+
+    if not can_issue:
+        return EmailVerificationResponse(
+            message=neutral_message,
+        )
+
+    raw_token = await create_email_verification_token(
+        session=session,
+        user=user,
+    )
+
+    background_tasks.add_task(
+        send_verification_email,
+        recipient=user.email,
+        token=raw_token,
+    )
+
+    return EmailVerificationResponse(
+        message=neutral_message,
+        debug_token=(raw_token if settings.app_env == "development" else None),
+    )
+
+    # =====================================================
+    # CONFIRMAR VERIFICACIÓN DE CORREO
+    # =====================================================
+
+
+@router.post(
+    "/email-verification/confirm",
+    response_model=UserResponse,
+    summary="Confirmar dirección de correo",
+)
+async def confirm_user_email(
+    request_data: EmailVerificationConfirm,
+    session: AsyncSession = Depends(get_db_session),
+) -> UserResponse:
+    user = await confirm_email_verification(
+        session=session,
+        raw_token=request_data.token,
+    )
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "El token de verificación es inválido, ya fue utilizado o ha vencido."
+            ),
+        )
+
+    return UserResponse.model_validate(user)
