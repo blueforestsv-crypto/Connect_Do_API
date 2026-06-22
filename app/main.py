@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.routes import auth_router, profiles_router
+from app.api.routes import auth_router, profiles_router, publications_router
 from app.core.config import settings
 from app.db.session import get_db_session
 
@@ -15,6 +15,7 @@ app = FastAPI(
 
 app.include_router(auth_router)
 app.include_router(profiles_router)
+app.include_router(publications_router)
 
 
 @app.get("/health", tags=["Health"])
