@@ -14,16 +14,12 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# CORS abierto temporalmente para pruebas locales con Flutter Web.
+# Esto permite que Flutter en Chrome pueda consumir la API aunque use un puerto aleatorio.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost",
-        "http://localhost:3000",
-        "http://localhost:5000",
-        "http://localhost:5173",
-        "http://localhost:8080",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
