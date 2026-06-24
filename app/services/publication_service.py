@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.contact_request import ContactRequest
 from app.models.publication import Publication
+from app.models.user import User
 from app.schemas.publication import PublicationCreate, PublicationUpdate
 
 
@@ -72,7 +73,9 @@ async def create_publication(
 
     result = await session.execute(
         select(Publication)
-        .options(selectinload(Publication.author))
+        .options(
+            selectinload(Publication.author).selectinload(User.profile)
+        )
         .where(Publication.id == publication.id)
     )
 
@@ -85,7 +88,9 @@ async def get_publication_by_id(
 ) -> Publication | None:
     result = await session.execute(
         select(Publication)
-        .options(selectinload(Publication.author))
+        .options(
+            selectinload(Publication.author).selectinload(User.profile)
+        )
         .where(Publication.id == publication_id)
     )
 
@@ -149,7 +154,9 @@ async def list_publications(
 
     query: Select[tuple[Publication]] = (
         select(Publication)
-        .options(selectinload(Publication.author))
+        .options(
+            selectinload(Publication.author).selectinload(User.profile)
+        )
         .where(
             or_(
                 Publication.visibility == "public",
@@ -197,7 +204,9 @@ async def update_publication(
 
     result = await session.execute(
         select(Publication)
-        .options(selectinload(Publication.author))
+        .options(
+            selectinload(Publication.author).selectinload(User.profile)
+        )
         .where(Publication.id == publication.id)
     )
 
