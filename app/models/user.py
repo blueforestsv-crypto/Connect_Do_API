@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.publication import Publication
     from app.models.contact_request import ContactRequest
     from app.models.message import Message
+    from app.models.notification import Notification
 
 
 class User(Base):
@@ -114,5 +115,12 @@ class User(Base):
         "Message",
         foreign_keys="Message.receiver_id",
         back_populates="receiver",
+        cascade="all, delete-orphan",
+    )
+    
+    notifications: Mapped[list["Notification"]] = relationship(
+        "Notification",
+        foreign_keys="Notification.user_id",
+        back_populates="user",
         cascade="all, delete-orphan",
     )
