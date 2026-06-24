@@ -5,6 +5,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user
+from app.db.session import get_db_session
 from app.models.notification import Notification
 from app.models.user import User
 from app.schemas.notification import (
@@ -55,6 +56,28 @@ async def get_my_unread_notifications_count(
     )
 
 
+@router.patch("/read-all", response_model=dict)
+async def mark_all_notifications_as_read(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    stmt = (
+        update(Notification)
+        .where(
+            Notification.user_id == current_user.id,
+            Notification.is_read.is_(False),
+        )
+        .values(is_read=True)
+    )
+
+    await db.execute(stmt)
+    await db.commit()
+
+    return {
+        "message": "Notificaciones marcadas como leídas.",
+    }
+
+
 @router.patch("/{notification_id}/read", response_model=NotificationResponse)
 async def mark_notification_as_read(
     notification_id: uuid.UUID,
@@ -81,25 +104,3 @@ async def mark_notification_as_read(
     await db.refresh(notification)
 
     return notification
-
-
-@router.patch("/read-all", response_model=dict)
-async def mark_all_notifications_as_read(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session),
-):
-    stmt = (
-        update(Notification)
-        .where(
-            Notification.user_id == current_user.id,
-            Notification.is_read.is_(False),
-        )
-        .values(is_read=True)
-    )
-
-    await db.execute(stmt)
-    await db.commit()
-
-    return {
-        "message": "Notificaciones marcadas como leídas.",
-    }

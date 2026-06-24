@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -9,7 +9,7 @@ from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.contact_request import ContactRequest
 from app.models.message import Message
-from app.models.profile import Profile
+from app.models.notification import Notification
 from app.models.user import User
 from app.schemas.chat import (
     ChatUserResponse,
@@ -35,6 +35,15 @@ def _build_chat_user(user: User) -> ChatUserResponse:
         career=profile.career if profile else None,
         profile_image_base64=profile.profile_image_base64 if profile else None,
     )
+
+
+def _get_full_name(user: User) -> str:
+    full_name = f"{user.first_name} {user.last_name}".strip()
+
+    if full_name:
+        return full_name
+
+    return user.email
 
 
 async def _are_contacts(
@@ -260,14 +269,32 @@ async def send_message_to_contact(
             detail="Solo puedes enviar mensajes a tus contactos.",
         )
 
+    clean_content = message_data.content.strip()
+
     message = Message(
         sender_id=current_user.id,
         receiver_id=contact.id,
-        content=message_data.content.strip(),
+        content=clean_content,
         is_read=False,
     )
 
     session.add(message)
+
+    await session.flush()
+
+    sender_name = _get_full_name(current_user)
+
+    notification = Notification(
+        user_id=contact.id,
+        type="message",
+        title="Nuevo mensaje",
+        message=f"{sender_name} te envió un mensaje.",
+        related_user_id=current_user.id,
+        related_message_id=message.id,
+        is_read=False,
+    )
+
+    session.add(notification)
 
     await session.commit()
 

@@ -1,10 +1,14 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
+from app.models.contact_request import ContactRequest
+from app.models.notification import Notification
 from app.models.user import User
 from app.schemas.publication import (
     PublicationCreate,
@@ -22,6 +26,86 @@ from app.services.publication_service import (
 router = APIRouter(prefix="/publications", tags=["Publications"])
 
 
+def _get_full_name(user: User) -> str:
+    full_name = f"{user.first_name} {user.last_name}".strip()
+
+    if full_name:
+        return full_name
+
+    return user.email
+
+
+def _get_publication_notification_type(
+    publication_data: PublicationCreate,
+) -> str:
+    possible_type = (
+        getattr(publication_data, "type", None)
+        or getattr(publication_data, "publication_type", None)
+        or getattr(publication_data, "category", None)
+        or ""
+    )
+
+    possible_type = str(possible_type).lower()
+
+    is_internship = getattr(publication_data, "is_internship", False)
+
+    if is_internship:
+        return "opportunity"
+
+    opportunity_keywords = [
+        "internship",
+        "pasantia",
+        "pasantía",
+        "opportunity",
+        "oportunidad",
+        "job",
+        "empleo",
+        "vacante",
+        "oferta",
+    ]
+
+    if any(keyword in possible_type for keyword in opportunity_keywords):
+        return "opportunity"
+
+    return "publication"
+
+
+async def _get_accepted_contact_ids(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+) -> list[uuid.UUID]:
+    result = await session.execute(
+        select(ContactRequest)
+        .where(
+            or_(
+                ContactRequest.requester_id == user_id,
+                ContactRequest.receiver_id == user_id,
+            ),
+            ContactRequest.status == "accepted",
+        )
+        .options(
+            joinedload(ContactRequest.requester),
+            joinedload(ContactRequest.receiver),
+        )
+    )
+
+    accepted_requests = result.scalars().unique().all()
+
+    contact_ids: list[uuid.UUID] = []
+
+    for request in accepted_requests:
+        contact_id = (
+            request.receiver_id
+            if request.requester_id == user_id
+            else request.requester_id
+        )
+
+        if contact_id != user_id:
+            contact_ids.append(contact_id)
+
+    return contact_ids
+
+
 @router.post(
     "",
     response_model=PublicationResponse,
@@ -32,11 +116,43 @@ async def create_publication_endpoint(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> PublicationResponse:
-    return await create_publication(
+    publication = await create_publication(
         session=session,
         author_id=current_user.id,
         publication_data=publication_data,
     )
+
+    contact_ids = await _get_accepted_contact_ids(
+        session=session,
+        user_id=current_user.id,
+    )
+
+    notification_type = _get_publication_notification_type(publication_data)
+    author_name = _get_full_name(current_user)
+
+    if notification_type == "opportunity":
+        title = "Nueva oportunidad"
+        message = f"{author_name} publicó una nueva oportunidad."
+    else:
+        title = "Nueva publicación"
+        message = f"{author_name} hizo una nueva publicación."
+
+    for contact_id in contact_ids:
+        notification = Notification(
+            user_id=contact_id,
+            type=notification_type,
+            title=title,
+            message=message,
+            related_user_id=current_user.id,
+            related_publication_id=publication.id,
+            is_read=False,
+        )
+
+        session.add(notification)
+
+    await session.commit()
+
+    return publication
 
 
 @router.get(

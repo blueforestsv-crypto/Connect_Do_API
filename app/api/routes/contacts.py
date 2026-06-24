@@ -8,7 +8,7 @@ from sqlalchemy.orm import joinedload
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.contact_request import ContactRequest
-from app.models.profile import Profile
+from app.models.notification import Notification
 from app.models.user import User
 from app.schemas.contact import (
     ContactRequestResponse,
@@ -20,6 +20,15 @@ router = APIRouter(
     prefix="/contacts",
     tags=["Contacts"],
 )
+
+
+def _get_full_name(user: User) -> str:
+    full_name = f"{user.first_name} {user.last_name}".strip()
+
+    if full_name:
+        return full_name
+
+    return user.email
 
 
 def _build_contact_user(
@@ -170,6 +179,8 @@ async def send_contact_request(
         user_b_id=receiver_id,
     )
 
+    requester_name = _get_full_name(current_user)
+
     if existing_request is not None:
         if existing_request.status == "accepted":
             raise HTTPException(
@@ -192,6 +203,18 @@ async def send_contact_request(
 
             existing_request.status = "pending"
 
+            notification = Notification(
+                user_id=receiver_id,
+                type="contact_request",
+                title="Nueva solicitud de contacto",
+                message=f"{requester_name} te envió una solicitud de contacto.",
+                related_user_id=current_user.id,
+                related_contact_request_id=existing_request.id,
+                is_read=False,
+            )
+
+            session.add(notification)
+
             await session.commit()
             await session.refresh(existing_request)
 
@@ -204,6 +227,20 @@ async def send_contact_request(
     )
 
     session.add(contact_request)
+
+    await session.flush()
+
+    notification = Notification(
+        user_id=receiver_id,
+        type="contact_request",
+        title="Nueva solicitud de contacto",
+        message=f"{requester_name} te envió una solicitud de contacto.",
+        related_user_id=current_user.id,
+        related_contact_request_id=contact_request.id,
+        is_read=False,
+    )
+
+    session.add(notification)
 
     await session.commit()
 
@@ -317,6 +354,20 @@ async def accept_contact_request(
         )
 
     contact_request.status = "accepted"
+
+    receiver_name = _get_full_name(current_user)
+
+    notification = Notification(
+        user_id=contact_request.requester_id,
+        type="contact_accepted",
+        title="Solicitud aceptada",
+        message=f"{receiver_name} aceptó tu solicitud de contacto.",
+        related_user_id=current_user.id,
+        related_contact_request_id=contact_request.id,
+        is_read=False,
+    )
+
+    session.add(notification)
 
     await session.commit()
     await session.refresh(contact_request)
