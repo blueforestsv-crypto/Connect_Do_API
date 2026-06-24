@@ -2,8 +2,16 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -23,6 +31,10 @@ class Publication(Base):
         CheckConstraint(
             "modality IS NULL OR modality IN ('remote', 'onsite', 'hybrid')",
             name="ck_publications_modality",
+        ),
+        CheckConstraint(
+            "visibility IN ('public', 'contacts', 'private')",
+            name="ck_publications_visibility",
         ),
     )
 
@@ -66,9 +78,22 @@ class Publication(Base):
         nullable=True,
     )
 
+    visibility: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="contacts",
+        index=True,
+    )
+
     image_url: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
+    )
+
+    media_items: Mapped[list[dict] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        default=list,
     )
 
     is_active: Mapped[bool] = mapped_column(
