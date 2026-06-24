@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     from app.models.profile import Profile
     from app.models.email_verification_token import EmailVerificationToken
     from app.models.publication import Publication
+    from app.models.contact_request import ContactRequest
+    from app.models.message import Message
 
 
 class User(Base):
@@ -82,7 +84,35 @@ class User(Base):
     )
 
     publications: Mapped[list["Publication"]] = relationship(
-    "Publication",
-    back_populates="author",
-    cascade="all, delete-orphan",
+        "Publication",
+        back_populates="author",
+        cascade="all, delete-orphan",
+    )
+
+    sent_contact_requests: Mapped[list["ContactRequest"]] = relationship(
+        "ContactRequest",
+        foreign_keys="ContactRequest.requester_id",
+        back_populates="requester",
+        cascade="all, delete-orphan",
+    )
+
+    received_contact_requests: Mapped[list["ContactRequest"]] = relationship(
+        "ContactRequest",
+        foreign_keys="ContactRequest.receiver_id",
+        back_populates="receiver",
+        cascade="all, delete-orphan",
+    )
+
+    sent_messages: Mapped[list["Message"]] = relationship(
+        "Message",
+        foreign_keys="Message.sender_id",
+        back_populates="sender",
+        cascade="all, delete-orphan",
+    )
+
+    received_messages: Mapped[list["Message"]] = relationship(
+        "Message",
+        foreign_keys="Message.receiver_id",
+        back_populates="receiver",
+        cascade="all, delete-orphan",
     )

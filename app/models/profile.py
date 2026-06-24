@@ -68,6 +68,12 @@ class Profile(Base):
         String(500),
         nullable=True,
     )
+    
+    profile_image_base64: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+         
 
     cv_url: Mapped[str | None] = mapped_column(
         String(500),

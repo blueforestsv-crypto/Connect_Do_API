@@ -37,6 +37,7 @@ class ProfileUpdate(BaseModel):
         default=None,
         max_length=500,
     )
+    profile_image_base64: str | None = None
     cv_url: str | None = Field(
         default=None,
         max_length=500,
@@ -56,6 +57,7 @@ class ProfileResponse(BaseModel):
     bio: str | None
     portfolio_url: str | None
     avatar_url: str | None
+    profile_image_base64: str | None
     cv_url: str | None
     is_private: bool
 
