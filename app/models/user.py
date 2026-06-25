@@ -1,12 +1,13 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.db.base import Base
 
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models.profile import Profile
@@ -117,10 +118,17 @@ class User(Base):
         back_populates="receiver",
         cascade="all, delete-orphan",
     )
-    
+
     notifications: Mapped[list["Notification"]] = relationship(
         "Notification",
         foreign_keys="Notification.user_id",
         back_populates="user",
         cascade="all, delete-orphan",
     )
+
+    @property
+    def profile_image_base64(self) -> str | None:
+        if self.profile is None:
+            return None
+
+        return self.profile.profile_image_base64
