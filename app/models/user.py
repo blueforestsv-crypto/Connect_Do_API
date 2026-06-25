@@ -128,7 +128,9 @@ class User(Base):
 
     @property
     def profile_image_base64(self) -> str | None:
-        if self.profile is None:
+        profile = self.__dict__.get("profile")
+
+        if profile is None:
             return None
 
-        return self.profile.profile_image_base64
+        return profile.profile_image_base64
