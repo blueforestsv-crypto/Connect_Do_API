@@ -18,6 +18,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.user import User
+    from app.models.application import Application
 
 
 class Publication(Base):
@@ -120,3 +121,9 @@ class Publication(Base):
         "User",
         back_populates="publications",
     )
+    
+    applications: Mapped[list["Application"]] = relationship(
+    "Application",
+    back_populates="publication",
+    cascade="all, delete-orphan",
+)

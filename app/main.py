@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.routes import auth_router, profiles_router, publications_router, contacts_router, chats_router
+from app.api.routes import auth_router, profiles_router, publications_router, contacts_router, chats_router, applications_router
 from app.core.config import settings
 from app.db.session import get_db_session
 from app.api.routes import notifications_router
@@ -31,6 +31,7 @@ app.include_router(publications_router)
 app.include_router(contacts_router)
 app.include_router(chats_router)
 app.include_router(notifications_router)
+app.include_router(applications_router)
 
 @app.get("/health", tags=["Health"])
 async def health_check() -> dict[str, str]:

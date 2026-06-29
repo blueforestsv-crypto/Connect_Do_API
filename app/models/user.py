@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.models.contact_request import ContactRequest
     from app.models.message import Message
     from app.models.notification import Notification
+    from app.models.application import Application
 
 
 class User(Base):
@@ -90,6 +91,20 @@ class User(Base):
         back_populates="author",
         cascade="all, delete-orphan",
     )
+    
+    applications_sent: Mapped[list["Application"]] = relationship(
+        "Application",
+        foreign_keys="Application.student_id",
+        back_populates="student",
+        cascade="all, delete-orphan",
+)
+
+    applications_received: Mapped[list["Application"]] = relationship(
+        "Application",
+        foreign_keys="Application.company_id",
+        back_populates="company",
+        cascade="all, delete-orphan",
+)
 
     sent_contact_requests: Mapped[list["ContactRequest"]] = relationship(
         "ContactRequest",
