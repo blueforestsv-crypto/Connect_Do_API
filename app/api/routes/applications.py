@@ -9,9 +9,13 @@ from sqlalchemy.orm import selectinload
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.application import Application
+from app.models.message import Message
+from app.models.notification import Notification
 from app.models.publication import Publication
 from app.models.user import User
 from app.schemas.application import (
+    ApplicationContactCreate,
+    ApplicationContactResponse,
     ApplicationCreate,
     ApplicationResponse,
     ApplicationUpdate,
@@ -39,6 +43,15 @@ def _build_profile_snapshot(user: User) -> dict:
         "profile_image_base64": profile.profile_image_base64 if profile else None,
         "cv_url": profile.cv_url if profile else None,
     }
+
+
+def _get_full_name(user: User) -> str:
+    full_name = f"{user.first_name} {user.last_name}".strip()
+
+    if full_name:
+        return full_name
+
+    return user.email
 
 
 async def _get_application_with_relations(
@@ -253,3 +266,84 @@ async def update_application_status_endpoint(
         )
 
     return updated_application
+
+
+@router.post(
+    "/{application_id}/contact",
+    response_model=ApplicationContactResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def contact_application_student_endpoint(
+    application_id: uuid.UUID,
+    contact_data: ApplicationContactCreate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> ApplicationContactResponse:
+    result = await session.execute(
+        select(Application)
+        .options(
+            selectinload(Application.student),
+            selectinload(Application.company),
+            selectinload(Application.publication),
+        )
+        .where(Application.id == application_id)
+    )
+
+    application = result.scalar_one_or_none()
+
+    if application is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Application not found",
+        )
+
+    if application.company_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only contact students from applications received by your company",
+        )
+
+    clean_content = contact_data.content.strip()
+
+    if not clean_content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Message content cannot be empty",
+        )
+
+    message = Message(
+        sender_id=current_user.id,
+        receiver_id=application.student_id,
+        content=clean_content,
+        is_read=False,
+    )
+
+    session.add(message)
+
+    await session.flush()
+
+    sender_name = _get_full_name(current_user)
+
+    notification = Notification(
+        user_id=application.student_id,
+        type="message",
+        title="Nuevo mensaje",
+        message=f"{sender_name} te envió un mensaje sobre tu postulación.",
+        related_user_id=current_user.id,
+        related_message_id=message.id,
+        is_read=False,
+    )
+
+    session.add(notification)
+
+    application.status = "contacted"
+
+    await session.commit()
+
+    return ApplicationContactResponse(
+        message_id=message.id,
+        application_id=application.id,
+        student_id=application.student_id,
+        company_id=application.company_id,
+        content=message.content,
+    )

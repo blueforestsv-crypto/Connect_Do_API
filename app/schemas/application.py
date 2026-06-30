@@ -24,6 +24,10 @@ class ApplicationUpdate(BaseModel):
     status: ApplicationStatus
 
 
+class ApplicationContactCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+
+
 class ApplicationPublicationResponse(BaseModel):
     id: uuid.UUID
     title: str
@@ -68,5 +72,15 @@ class ApplicationResponse(BaseModel):
     publication: ApplicationPublicationResponse | None = None
     student: ApplicationStudentResponse | None = None
     company: ApplicationCompanyResponse | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ApplicationContactResponse(BaseModel):
+    message_id: uuid.UUID
+    application_id: uuid.UUID
+    student_id: uuid.UUID
+    company_id: uuid.UUID
+    content: str
 
     model_config = ConfigDict(from_attributes=True)
