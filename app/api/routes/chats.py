@@ -25,7 +25,7 @@ router = APIRouter(
 
 
 def _build_chat_user(user: User) -> ChatUserResponse:
-    profile = user.profile
+    profile = user.__dict__.get("profile")
 
     return ChatUserResponse(
         id=user.id,
@@ -70,6 +70,54 @@ async def _are_contacts(
     return result.scalar_one_or_none() is not None
 
 
+async def _has_existing_conversation(
+    session: AsyncSession,
+    user_a_id: uuid.UUID,
+    user_b_id: uuid.UUID,
+) -> bool:
+    result = await session.execute(
+        select(Message.id)
+        .where(
+            or_(
+                and_(
+                    Message.sender_id == user_a_id,
+                    Message.receiver_id == user_b_id,
+                ),
+                and_(
+                    Message.sender_id == user_b_id,
+                    Message.receiver_id == user_a_id,
+                ),
+            )
+        )
+        .limit(1)
+    )
+
+    return result.scalar_one_or_none() is not None
+
+
+async def _can_chat(
+    session: AsyncSession,
+    user_a_id: uuid.UUID,
+    user_b_id: uuid.UUID,
+) -> bool:
+    are_contacts = await _are_contacts(
+        session=session,
+        user_a_id=user_a_id,
+        user_b_id=user_b_id,
+    )
+
+    if are_contacts:
+        return True
+
+    has_existing_conversation = await _has_existing_conversation(
+        session=session,
+        user_a_id=user_a_id,
+        user_b_id=user_b_id,
+    )
+
+    return has_existing_conversation
+
+
 async def _get_contact_or_404(
     session: AsyncSession,
     contact_id: uuid.UUID,
@@ -100,6 +148,8 @@ async def get_conversations(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[ConversationResponse]:
+    conversations_by_contact_id: dict[uuid.UUID, ConversationResponse] = {}
+
     contacts_result = await session.execute(
         select(ContactRequest)
         .where(
@@ -117,8 +167,6 @@ async def get_conversations(
 
     accepted_contacts = contacts_result.scalars().unique().all()
 
-    conversations: list[ConversationResponse] = []
-
     for contact_request in accepted_contacts:
         contact = (
             contact_request.receiver
@@ -126,51 +174,62 @@ async def get_conversations(
             else contact_request.requester
         )
 
-        last_message_result = await session.execute(
-            select(Message)
-            .where(
-                or_(
-                    and_(
-                        Message.sender_id == current_user.id,
-                        Message.receiver_id == contact.id,
-                    ),
-                    and_(
-                        Message.sender_id == contact.id,
-                        Message.receiver_id == current_user.id,
-                    ),
-                )
-            )
-            .options(
-                joinedload(Message.sender).joinedload(User.profile),
-                joinedload(Message.receiver).joinedload(User.profile),
-            )
-            .order_by(Message.created_at.desc())
-            .limit(1)
+        conversations_by_contact_id[contact.id] = ConversationResponse(
+            contact=_build_chat_user(contact),
+            last_message=None,
+            unread_count=0,
         )
 
-        last_message = last_message_result.scalar_one_or_none()
+    messages_result = await session.execute(
+        select(Message)
+        .where(
+            or_(
+                Message.sender_id == current_user.id,
+                Message.receiver_id == current_user.id,
+            )
+        )
+        .options(
+            joinedload(Message.sender).joinedload(User.profile),
+            joinedload(Message.receiver).joinedload(User.profile),
+        )
+        .order_by(Message.created_at.desc())
+    )
 
+    messages = messages_result.scalars().unique().all()
+
+    for message in messages:
+        contact = (
+            message.receiver
+            if message.sender_id == current_user.id
+            else message.sender
+        )
+
+        if contact.id not in conversations_by_contact_id:
+            conversations_by_contact_id[contact.id] = ConversationResponse(
+                contact=_build_chat_user(contact),
+                last_message=MessageResponse.model_validate(message),
+                unread_count=0,
+            )
+        else:
+            existing_conversation = conversations_by_contact_id[contact.id]
+
+            if existing_conversation.last_message is None:
+                existing_conversation.last_message = MessageResponse.model_validate(
+                    message
+                )
+
+    conversations = list(conversations_by_contact_id.values())
+
+    for conversation in conversations:
         unread_count_result = await session.execute(
             select(func.count(Message.id)).where(
-                Message.sender_id == contact.id,
+                Message.sender_id == conversation.contact.id,
                 Message.receiver_id == current_user.id,
                 Message.is_read.is_(False),
             )
         )
 
-        unread_count = unread_count_result.scalar_one() or 0
-
-        conversations.append(
-            ConversationResponse(
-                contact=_build_chat_user(contact),
-                last_message=(
-                    MessageResponse.model_validate(last_message)
-                    if last_message is not None
-                    else None
-                ),
-                unread_count=unread_count,
-            )
-        )
+        conversation.unread_count = unread_count_result.scalar_one() or 0
 
     conversations.sort(
         key=lambda item: (
@@ -199,16 +258,16 @@ async def get_messages_with_contact(
         contact_id=contact_id,
     )
 
-    are_contacts = await _are_contacts(
+    can_chat = await _can_chat(
         session=session,
         user_a_id=current_user.id,
         user_b_id=contact.id,
     )
 
-    if not are_contacts:
+    if not can_chat:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo puedes ver mensajes con tus contactos.",
+            detail="Solo puedes ver mensajes con tus contactos o conversaciones iniciadas.",
         )
 
     result = await session.execute(
@@ -257,19 +316,25 @@ async def send_message_to_contact(
         contact_id=contact_id,
     )
 
-    are_contacts = await _are_contacts(
+    can_chat = await _can_chat(
         session=session,
         user_a_id=current_user.id,
         user_b_id=contact.id,
     )
 
-    if not are_contacts:
+    if not can_chat:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo puedes enviar mensajes a tus contactos.",
+            detail="Solo puedes enviar mensajes a tus contactos o conversaciones iniciadas.",
         )
 
     clean_content = message_data.content.strip()
+
+    if not clean_content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El mensaje no puede estar vacío.",
+        )
 
     message = Message(
         sender_id=current_user.id,
@@ -326,16 +391,16 @@ async def mark_messages_as_read(
         contact_id=contact_id,
     )
 
-    are_contacts = await _are_contacts(
+    can_chat = await _can_chat(
         session=session,
         user_a_id=current_user.id,
         user_b_id=contact.id,
     )
 
-    if not are_contacts:
+    if not can_chat:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo puedes marcar mensajes de tus contactos.",
+            detail="Solo puedes marcar mensajes de tus contactos o conversaciones iniciadas.",
         )
 
     result = await session.execute(
