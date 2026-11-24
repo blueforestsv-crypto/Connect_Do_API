@@ -161,9 +161,7 @@ async def send_contact_request(
         )
 
     receiver_result = await session.execute(
-        select(User)
-        .where(User.id == receiver_id)
-        .options(joinedload(User.profile))
+        select(User).where(User.id == receiver_id).options(joinedload(User.profile))
     )
     receiver = receiver_result.scalar_one_or_none()
 

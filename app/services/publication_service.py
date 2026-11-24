@@ -57,8 +57,7 @@ async def create_publication(
         visibility=publication_data.visibility,
         image_url=publication_data.image_url,
         media_items=[
-            media_item.model_dump()
-            for media_item in publication_data.media_items
+            media_item.model_dump() for media_item in publication_data.media_items
         ],
     )
 
@@ -73,9 +72,7 @@ async def create_publication(
 
     result = await session.execute(
         select(Publication)
-        .options(
-            selectinload(Publication.author).selectinload(User.profile)
-        )
+        .options(selectinload(Publication.author).selectinload(User.profile))
         .where(Publication.id == publication.id)
     )
 
@@ -88,9 +85,7 @@ async def get_publication_by_id(
 ) -> Publication | None:
     result = await session.execute(
         select(Publication)
-        .options(
-            selectinload(Publication.author).selectinload(User.profile)
-        )
+        .options(selectinload(Publication.author).selectinload(User.profile))
         .where(Publication.id == publication_id)
     )
 
@@ -154,9 +149,7 @@ async def list_publications(
 
     query: Select[tuple[Publication]] = (
         select(Publication)
-        .options(
-            selectinload(Publication.author).selectinload(User.profile)
-        )
+        .options(selectinload(Publication.author).selectinload(User.profile))
         .where(
             or_(
                 Publication.visibility == "public",
@@ -192,8 +185,7 @@ async def update_publication(
 
     if "media_items" in update_data and update_data["media_items"] is not None:
         update_data["media_items"] = [
-            media_item.model_dump()
-            for media_item in publication_data.media_items or []
+            media_item.model_dump() for media_item in publication_data.media_items or []
         ]
 
     for field, value in update_data.items():
@@ -204,9 +196,7 @@ async def update_publication(
 
     result = await session.execute(
         select(Publication)
-        .options(
-            selectinload(Publication.author).selectinload(User.profile)
-        )
+        .options(selectinload(Publication.author).selectinload(User.profile))
         .where(Publication.id == publication.id)
     )
 

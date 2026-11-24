@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 PublicationType = Literal[
@@ -88,5 +88,51 @@ class PublicationResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     author: PublicationAuthorResponse
+
+    # Interacciones, calculadas para el usuario que hace la petición.
+    likes_count: int = 0
+    comments_count: int = 0
+    liked_by_me: bool = False
+    is_mine: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LikeResponse(BaseModel):
+    liked: bool
+    likes_count: int
+
+
+class CommentCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("text")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("El comentario no puede estar vacío.")
+        return value
+
+
+class CommentAuthorResponse(BaseModel):
+    id: uuid.UUID
+    first_name: str
+    last_name: str
+    profile_image_base64: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CommentResponse(BaseModel):
+    id: uuid.UUID
+    publication_id: uuid.UUID
+    text: str
+    created_at: datetime
+    updated_at: datetime
+    author: CommentAuthorResponse
+    is_mine: bool = False
+    # El autor de la publicación también puede borrar comentarios en ella.
+    can_delete: bool = False
 
     model_config = ConfigDict(from_attributes=True)

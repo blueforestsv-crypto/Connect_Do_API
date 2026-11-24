@@ -1,3 +1,4 @@
+import hmac
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -37,12 +38,23 @@ async def can_issue_verification_token(
     return datetime.now(UTC) >= resend_available_at
 
 
-async def create_email_verification_token(
+def _hash_code(token_id: uuid.UUID, code: str) -> str:
+    # El id del registro actúa como sal: dos usuarios con el mismo código
+    # no generan el mismo hash (token_hash es único).
+    return hash_token(f"{token_id}:{code}")
+
+
+def _generate_code() -> str:
+    length = settings.email_verification_code_length
+    return f"{secrets.randbelow(10**length):0{length}d}"
+
+
+async def create_email_verification_code(
     session: AsyncSession,
     user: User,
 ) -> str:
-    raw_token = secrets.token_urlsafe(48)
-    token_hash = hash_token(raw_token)
+    """Revoca los códigos pendientes del usuario y emite uno nuevo."""
+    code = _generate_code()
 
     now = datetime.now(UTC)
     expires_at = now + timedelta(
@@ -59,9 +71,11 @@ async def create_email_verification_token(
         .values(revoked_at=now)
     )
 
+    token_id = uuid.uuid4()
     token_record = EmailVerificationToken(
+        id=token_id,
         user_id=user.id,
-        token_hash=token_hash,
+        token_hash=_hash_code(token_id, code),
         expires_at=expires_at,
     )
 
@@ -73,57 +87,59 @@ async def create_email_verification_token(
         await session.rollback()
         raise
 
-    return raw_token
+    return code
 
 
-async def confirm_email_verification(
+async def confirm_email_verification_code(
     session: AsyncSession,
-    raw_token: str,
-) -> User | None:
-    now = datetime.now(UTC)
-    token_hash = hash_token(raw_token)
+    user: User,
+    code: str,
+) -> bool:
+    """Valida el código vigente del usuario.
 
-    statement = select(EmailVerificationToken).where(
-        EmailVerificationToken.token_hash == token_hash,
-        EmailVerificationToken.used_at.is_(None),
-        EmailVerificationToken.revoked_at.is_(None),
-        EmailVerificationToken.expires_at > now,
+    Cada intento fallido suma al contador; al llegar al máximo el código
+    se revoca y hay que solicitar uno nuevo.
+    """
+    now = datetime.now(UTC)
+
+    statement = (
+        select(EmailVerificationToken)
+        .where(
+            EmailVerificationToken.user_id == user.id,
+            EmailVerificationToken.used_at.is_(None),
+            EmailVerificationToken.revoked_at.is_(None),
+            EmailVerificationToken.expires_at > now,
+        )
+        .order_by(EmailVerificationToken.created_at.desc())
+        .limit(1)
+        .with_for_update()
     )
 
     result = await session.execute(statement)
     token_record = result.scalar_one_or_none()
 
-    if token_record is None:
-        return None
+    if token_record is None or not user.is_active:
+        return False
 
-    user = await session.get(
-        User,
-        token_record.user_id,
-    )
-
-    if user is None or not user.is_active:
-        return None
-
-    token_record.used_at = now
-    user.is_verified = True
-
-    revoke_other_tokens = (
-        update(EmailVerificationToken)
-        .where(
-            EmailVerificationToken.user_id == user.id,
-            EmailVerificationToken.id != token_record.id,
-            EmailVerificationToken.used_at.is_(None),
-            EmailVerificationToken.revoked_at.is_(None),
-        )
-        .values(revoked_at=now)
-    )
+    expected_hash = _hash_code(token_record.id, code.strip())
 
     try:
-        await session.execute(revoke_other_tokens)
+        if not hmac.compare_digest(expected_hash, token_record.token_hash):
+            token_record.failed_attempts += 1
+
+            if token_record.failed_attempts >= settings.email_verification_max_attempts:
+                token_record.revoked_at = now
+
+            await session.commit()
+            return False
+
+        token_record.used_at = now
+        user.is_verified = True
+
         await session.commit()
         await session.refresh(user)
     except Exception:
         await session.rollback()
         raise
 
-    return user
+    return True

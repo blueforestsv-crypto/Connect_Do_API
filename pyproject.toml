@@ -16,7 +16,7 @@ dependencies = [
     "pydantic-settings",
     "psycopg[binary]",
     "pwdlib[argon2]",
-    "PyJWT",
+    "PyJWT[crypto]",
     "email-validator",
 ]
 

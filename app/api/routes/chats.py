@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -10,6 +10,7 @@ from app.db.session import get_db_session
 from app.models.contact_request import ContactRequest
 from app.models.message import Message
 from app.models.notification import Notification
+from app.models.profile import Profile
 from app.models.user import User
 from app.schemas.chat import (
     ChatUserResponse,
@@ -24,7 +25,20 @@ router = APIRouter(
 )
 
 
-def _build_chat_user(user: User) -> ChatUserResponse:
+def _profile_loader(relationship, include_images: bool):
+    """
+    Carga el perfil del usuario. Si no se piden imágenes, la columna
+    profile_image_base64 (muy pesada) no se trae de la base de datos.
+    """
+    loader = joinedload(relationship).joinedload(User.profile)
+
+    if not include_images:
+        loader = loader.defer(Profile.profile_image_base64)
+
+    return loader
+
+
+def _build_chat_user(user: User, include_images: bool = True) -> ChatUserResponse:
     profile = user.__dict__.get("profile")
 
     return ChatUserResponse(
@@ -33,7 +47,24 @@ def _build_chat_user(user: User) -> ChatUserResponse:
         first_name=user.first_name,
         last_name=user.last_name,
         career=profile.career if profile else None,
-        profile_image_base64=profile.profile_image_base64 if profile else None,
+        profile_image_base64=(
+            profile.profile_image_base64 if profile and include_images else None
+        ),
+    )
+
+
+def _build_message(message: Message, include_images: bool = True) -> MessageResponse:
+    # Se construye a mano (sin model_validate) para no tocar la columna
+    # diferida de la imagen cuando include_images es False.
+    return MessageResponse(
+        id=message.id,
+        sender_id=message.sender_id,
+        receiver_id=message.receiver_id,
+        content=message.content,
+        is_read=message.is_read,
+        created_at=message.created_at,
+        sender=_build_chat_user(message.sender, include_images),
+        receiver=_build_chat_user(message.receiver, include_images),
     )
 
 
@@ -123,9 +154,7 @@ async def _get_contact_or_404(
     contact_id: uuid.UUID,
 ) -> User:
     result = await session.execute(
-        select(User)
-        .where(User.id == contact_id)
-        .options(joinedload(User.profile))
+        select(User).where(User.id == contact_id).options(joinedload(User.profile))
     )
 
     contact = result.scalar_one_or_none()
@@ -145,11 +174,13 @@ async def _get_contact_or_404(
     summary="Ver mis conversaciones",
 )
 async def get_conversations(
+    include_images: bool = True,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[ConversationResponse]:
     conversations_by_contact_id: dict[uuid.UUID, ConversationResponse] = {}
 
+    # 1. Contactos aceptados (pueden no tener mensajes todavía).
     contacts_result = await session.execute(
         select(ContactRequest)
         .where(
@@ -160,14 +191,12 @@ async def get_conversations(
             ContactRequest.status == "accepted",
         )
         .options(
-            joinedload(ContactRequest.requester).joinedload(User.profile),
-            joinedload(ContactRequest.receiver).joinedload(User.profile),
+            _profile_loader(ContactRequest.requester, include_images),
+            _profile_loader(ContactRequest.receiver, include_images),
         )
     )
 
-    accepted_contacts = contacts_result.scalars().unique().all()
-
-    for contact_request in accepted_contacts:
+    for contact_request in contacts_result.scalars().unique().all():
         contact = (
             contact_request.receiver
             if contact_request.requester_id == current_user.id
@@ -175,65 +204,79 @@ async def get_conversations(
         )
 
         conversations_by_contact_id[contact.id] = ConversationResponse(
-            contact=_build_chat_user(contact),
+            contact=_build_chat_user(contact, include_images),
             last_message=None,
             unread_count=0,
         )
 
-    messages_result = await session.execute(
-        select(Message)
+    # 2. Solo el último mensaje de cada conversación (antes se cargaban
+    #    TODOS los mensajes del usuario con sus perfiles e imágenes).
+    partner_id = case(
+        (Message.sender_id == current_user.id, Message.receiver_id),
+        else_=Message.sender_id,
+    )
+
+    last_message_ids = (
+        select(Message.id)
         .where(
             or_(
                 Message.sender_id == current_user.id,
                 Message.receiver_id == current_user.id,
             )
         )
-        .options(
-            joinedload(Message.sender).joinedload(User.profile),
-            joinedload(Message.receiver).joinedload(User.profile),
-        )
-        .order_by(Message.created_at.desc())
+        .distinct(partner_id)
+        .order_by(partner_id, Message.created_at.desc())
     )
 
-    messages = messages_result.scalars().unique().all()
+    messages_result = await session.execute(
+        select(Message)
+        .where(Message.id.in_(last_message_ids))
+        .options(
+            _profile_loader(Message.sender, include_images),
+            _profile_loader(Message.receiver, include_images),
+        )
+    )
 
-    for message in messages:
+    for message in messages_result.scalars().unique().all():
         contact = (
-            message.receiver
-            if message.sender_id == current_user.id
-            else message.sender
+            message.receiver if message.sender_id == current_user.id else message.sender
         )
 
-        if contact.id not in conversations_by_contact_id:
+        last_message = _build_message(message, include_images)
+
+        if contact.id in conversations_by_contact_id:
+            conversations_by_contact_id[contact.id].last_message = last_message
+        else:
             conversations_by_contact_id[contact.id] = ConversationResponse(
-                contact=_build_chat_user(contact),
-                last_message=MessageResponse.model_validate(message),
+                contact=_build_chat_user(contact, include_images),
+                last_message=last_message,
                 unread_count=0,
             )
-        else:
-            existing_conversation = conversations_by_contact_id[contact.id]
 
-            if existing_conversation.last_message is None:
-                existing_conversation.last_message = MessageResponse.model_validate(
-                    message
-                )
+    # 3. No leídos de todas las conversaciones en una sola consulta.
+    unread_result = await session.execute(
+        select(Message.sender_id, func.count(Message.id))
+        .where(
+            Message.receiver_id == current_user.id,
+            Message.is_read.is_(False),
+        )
+        .group_by(Message.sender_id)
+    )
+
+    for sender_id, unread_count in unread_result.all():
+        conversation = conversations_by_contact_id.get(sender_id)
+
+        if conversation is not None:
+            conversation.unread_count = unread_count
 
     conversations = list(conversations_by_contact_id.values())
 
-    for conversation in conversations:
-        unread_count_result = await session.execute(
-            select(func.count(Message.id)).where(
-                Message.sender_id == conversation.contact.id,
-                Message.receiver_id == current_user.id,
-                Message.is_read.is_(False),
-            )
-        )
-
-        conversation.unread_count = unread_count_result.scalar_one() or 0
-
+    # Las conversaciones sin mensajes van al final. Antes, mezclar None con
+    # fechas en la clave de orden lanzaba TypeError (error 500).
     conversations.sort(
         key=lambda item: (
-            item.last_message.created_at if item.last_message else None
+            item.last_message is not None,
+            item.last_message.created_at.timestamp() if item.last_message else 0,
         ),
         reverse=True,
     )
@@ -250,6 +293,7 @@ async def get_messages_with_contact(
     contact_id: uuid.UUID,
     limit: int = 50,
     offset: int = 0,
+    include_images: bool = True,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[MessageResponse]:
@@ -285,18 +329,21 @@ async def get_messages_with_contact(
             )
         )
         .options(
-            joinedload(Message.sender).joinedload(User.profile),
-            joinedload(Message.receiver).joinedload(User.profile),
+            _profile_loader(Message.sender, include_images),
+            _profile_loader(Message.receiver, include_images),
         )
-        .order_by(Message.created_at.asc())
+        # Los más recientes primero para que limit/offset devuelvan los
+        # últimos mensajes (antes devolvía los 50 MÁS ANTIGUOS y los nuevos
+        # nunca aparecían en conversaciones largas).
+        .order_by(Message.created_at.desc())
         .limit(limit)
         .offset(offset)
     )
 
-    return [
-        MessageResponse.model_validate(message)
-        for message in result.scalars().unique().all()
-    ]
+    messages = list(result.scalars().unique().all())
+    messages.reverse()  # Se devuelven en orden cronológico.
+
+    return [_build_message(message, include_images) for message in messages]
 
 
 @router.post(
@@ -308,6 +355,7 @@ async def get_messages_with_contact(
 async def send_message_to_contact(
     contact_id: uuid.UUID,
     message_data: MessageCreate,
+    include_images: bool = True,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> MessageResponse:
@@ -367,14 +415,14 @@ async def send_message_to_contact(
         select(Message)
         .where(Message.id == message.id)
         .options(
-            joinedload(Message.sender).joinedload(User.profile),
-            joinedload(Message.receiver).joinedload(User.profile),
+            _profile_loader(Message.sender, include_images),
+            _profile_loader(Message.receiver, include_images),
         )
     )
 
-    created_message = result.scalar_one()
+    created_message = result.unique().scalar_one()
 
-    return MessageResponse.model_validate(created_message)
+    return _build_message(created_message, include_images)
 
 
 @router.patch(
@@ -404,20 +452,18 @@ async def mark_messages_as_read(
         )
 
     result = await session.execute(
-        select(Message).where(
+        update(Message)
+        .where(
             Message.sender_id == contact.id,
             Message.receiver_id == current_user.id,
             Message.is_read.is_(False),
         )
+        .values(is_read=True)
+        .execution_options(synchronize_session=False)
     )
-
-    unread_messages = result.scalars().all()
-
-    for message in unread_messages:
-        message.is_read = True
 
     await session.commit()
 
     return {
-        "updated": len(unread_messages),
+        "updated": result.rowcount or 0,
     }

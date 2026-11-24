@@ -6,12 +6,13 @@ class EmailVerificationRequest(BaseModel):
 
 
 class EmailVerificationConfirm(BaseModel):
-    token: str = Field(
-        min_length=32,
-        max_length=500,
+    code: str = Field(
+        pattern=r"^\d{4,8}$",
+        description="Código numérico enviado al correo.",
     )
 
 
 class EmailVerificationResponse(BaseModel):
     message: str
-    debug_token: str | None = None
+    # Solo en development: el código, para probar sin proveedor de correo.
+    debug_code: str | None = None

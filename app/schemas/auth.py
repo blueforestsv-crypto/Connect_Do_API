@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class LoginRequest(BaseModel):
@@ -18,6 +18,14 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+class GoogleAuthRequest(BaseModel):
+    id_token: str = Field(min_length=20, max_length=4096)
+
+
+class GoogleAuthResponse(TokenResponse):
+    is_new_user: bool
 
 
 class AccessTokenResponse(BaseModel):

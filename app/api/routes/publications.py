@@ -11,9 +11,23 @@ from app.models.notification import Notification
 from app.models.publication import Publication
 from app.models.user import User
 from app.schemas.publication import (
+    CommentCreate,
+    CommentResponse,
+    LikeResponse,
     PublicationCreate,
     PublicationResponse,
     PublicationUpdate,
+)
+from app.services.publication_interaction_service import (
+    build_publication_response,
+    build_publication_responses,
+    create_comment,
+    delete_comment,
+    get_comment,
+    like_publication,
+    list_comments,
+    unlike_publication,
+    update_comment,
 )
 from app.services.publication_service import (
     can_user_view_publication,
@@ -102,7 +116,9 @@ async def create_publication_endpoint(
 
     created_publication = result.scalar_one()
 
-    return created_publication
+    return await build_publication_response(
+        session, created_publication, current_user.id
+    )
 
 
 @router.get(
@@ -116,13 +132,15 @@ async def list_publications_endpoint(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[PublicationResponse]:
-    return await list_publications(
+    publications = await list_publications(
         session=session,
         current_user_id=current_user.id,
         publication_type=publication_type,
         limit=limit,
         offset=offset,
     )
+
+    return await build_publication_responses(session, publications, current_user.id)
 
 
 @router.get(
@@ -157,7 +175,7 @@ async def get_publication_endpoint(
             detail="Publication not found",
         )
 
-    return publication
+    return await build_publication_response(session, publication, current_user.id)
 
 
 @router.patch(
@@ -187,11 +205,13 @@ async def update_publication_endpoint(
             detail="You can only update your own publications",
         )
 
-    return await update_publication(
+    updated = await update_publication(
         session=session,
         publication=publication,
         publication_data=publication_data,
     )
+
+    return await build_publication_response(session, updated, current_user.id)
 
 
 @router.delete(
@@ -224,3 +244,144 @@ async def delete_publication_endpoint(
         session=session,
         publication=publication,
     )
+
+
+# =====================================================
+# ME GUSTA Y COMENTARIOS
+# =====================================================
+async def _get_visible_publication(
+    session: AsyncSession,
+    publication_id: uuid.UUID,
+    user: User,
+) -> Publication:
+    publication = await get_publication_by_id(
+        session=session,
+        publication_id=publication_id,
+    )
+
+    if publication is None or not await can_user_view_publication(
+        session=session,
+        publication=publication,
+        user_id=user.id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Publication not found",
+        )
+
+    return publication
+
+
+@router.post("/{publication_id}/like", response_model=LikeResponse)
+async def like_publication_endpoint(
+    publication_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> LikeResponse:
+    publication = await _get_visible_publication(session, publication_id, current_user)
+    likes = await like_publication(session, publication, current_user)
+    return LikeResponse(liked=True, likes_count=likes)
+
+
+@router.delete("/{publication_id}/like", response_model=LikeResponse)
+async def unlike_publication_endpoint(
+    publication_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> LikeResponse:
+    publication = await _get_visible_publication(session, publication_id, current_user)
+    likes = await unlike_publication(session, publication, current_user)
+    return LikeResponse(liked=False, likes_count=likes)
+
+
+@router.get("/{publication_id}/comments", response_model=list[CommentResponse])
+async def list_comments_endpoint(
+    publication_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[CommentResponse]:
+    publication = await _get_visible_publication(session, publication_id, current_user)
+    return await list_comments(
+        session, publication, current_user.id, limit=limit, offset=offset
+    )
+
+
+@router.post(
+    "/{publication_id}/comments",
+    response_model=CommentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_comment_endpoint(
+    publication_id: uuid.UUID,
+    comment_data: CommentCreate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> CommentResponse:
+    publication = await _get_visible_publication(session, publication_id, current_user)
+    return await create_comment(session, publication, current_user, comment_data.text)
+
+
+@router.patch(
+    "/{publication_id}/comments/{comment_id}",
+    response_model=CommentResponse,
+)
+async def update_comment_endpoint(
+    publication_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    comment_data: CommentCreate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> CommentResponse:
+    publication = await _get_visible_publication(session, publication_id, current_user)
+    comment = await get_comment(session, publication.id, comment_id)
+
+    if comment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comentario no encontrado.",
+        )
+
+    if comment.author_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo puedes editar tus propios comentarios.",
+        )
+
+    return await update_comment(
+        session,
+        comment,
+        comment_data.text,
+        current_user_id=current_user.id,
+        publication_author_id=publication.author_id,
+    )
+
+
+@router.delete(
+    "/{publication_id}/comments/{comment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_comment_endpoint(
+    publication_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> None:
+    publication = await _get_visible_publication(session, publication_id, current_user)
+    comment = await get_comment(session, publication.id, comment_id)
+
+    if comment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comentario no encontrado.",
+        )
+
+    # Lo borra quien lo escribió o el autor de la publicación (moderación).
+    if current_user.id not in (comment.author_id, publication.author_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No puedes eliminar este comentario.",
+        )
+
+    await delete_comment(session, comment)

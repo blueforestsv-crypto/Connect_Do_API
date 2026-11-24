@@ -8,6 +8,8 @@ from app.db.session import get_db_session
 from app.models.user import User
 from app.schemas.auth import (
     AccessTokenResponse,
+    GoogleAuthRequest,
+    GoogleAuthResponse,
     LoginRequest,
     LogoutRequest,
     RefreshTokenRequest,
@@ -28,6 +30,11 @@ from app.services.user_service import (
     create_user,
     get_user_by_email,
     get_user_by_id,
+    get_or_create_google_user,
+)
+from app.services.google_auth_service import (
+    GoogleAuthError,
+    verify_google_id_token,
 )
 
 from app.core.config import settings
@@ -39,8 +46,8 @@ from app.schemas.email_verification import (
 from app.services.email_service import send_verification_email
 from app.services.email_verification_service import (
     can_issue_verification_token,
-    confirm_email_verification,
-    create_email_verification_token,
+    confirm_email_verification_code,
+    create_email_verification_code,
 )
 
 
@@ -119,6 +126,53 @@ async def login_user(
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
+    )
+
+
+# =====================================================
+# INICIAR SESIÓN / REGISTRARSE CON GOOGLE (OAuth 2.0)
+# =====================================================
+@router.post(
+    "/google",
+    response_model=GoogleAuthResponse,
+    summary="Iniciar sesión o registrarse con Google",
+)
+async def google_auth(
+    request_data: GoogleAuthRequest,
+    session: AsyncSession = Depends(get_db_session),
+) -> GoogleAuthResponse:
+    try:
+        identity = await verify_google_id_token(request_data.id_token)
+    except GoogleAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        ) from None
+
+    user, created = await get_or_create_google_user(
+        session=session,
+        identity=identity,
+    )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La cuenta está desactivada.",
+        )
+
+    access_token = create_access_token(
+        subject=str(user.id),
+    )
+
+    refresh_token = await create_user_refresh_token(
+        session=session,
+        user_id=user.id,
+    )
+
+    return GoogleAuthResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        is_new_user=created,
     )
 
 
@@ -266,7 +320,7 @@ async def request_email_verification(
             message=neutral_message,
         )
 
-    raw_token = await create_email_verification_token(
+    code = await create_email_verification_code(
         session=session,
         user=user,
     )
@@ -274,39 +328,45 @@ async def request_email_verification(
     background_tasks.add_task(
         send_verification_email,
         recipient=user.email,
-        token=raw_token,
+        code=code,
     )
 
     return EmailVerificationResponse(
         message=neutral_message,
-        debug_token=(raw_token if settings.app_env == "development" else None),
+        # Solo para pruebas locales: si hay SMTP el código va únicamente
+        # por correo, aunque el entorno sea development.
+        debug_code=(
+            code if settings.is_development and not settings.email_enabled else None
+        ),
     )
 
-    # =====================================================
-    # CONFIRMAR VERIFICACIÓN DE CORREO
-    # =====================================================
 
-
+# =====================================================
+# CONFIRMAR VERIFICACIÓN DE CORREO (CÓDIGO)
+# =====================================================
 @router.post(
     "/email-verification/confirm",
     response_model=UserResponse,
-    summary="Confirmar dirección de correo",
+    summary="Confirmar correo con el código recibido",
 )
 async def confirm_user_email(
     request_data: EmailVerificationConfirm,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> UserResponse:
-    user = await confirm_email_verification(
+    if current_user.is_verified:
+        return UserResponse.model_validate(current_user)
+
+    confirmed = await confirm_email_verification_code(
         session=session,
-        raw_token=request_data.token,
+        user=current_user,
+        code=request_data.code,
     )
 
-    if user is None:
+    if not confirmed:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "El token de verificación es inválido, ya fue utilizado o ha vencido."
-            ),
+            detail="El código es incorrecto o ha vencido. Solicita uno nuevo.",
         )
 
-    return UserResponse.model_validate(user)
+    return UserResponse.model_validate(current_user)

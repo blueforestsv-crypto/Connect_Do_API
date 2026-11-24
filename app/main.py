@@ -3,7 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.routes import auth_router, profiles_router, publications_router, contacts_router, chats_router, applications_router
+from app.api.routes import (
+    auth_router,
+    profiles_router,
+    publications_router,
+    contacts_router,
+    chats_router,
+    applications_router,
+)
 from app.core.config import settings
 from app.db.session import get_db_session
 from app.api.routes import notifications_router
@@ -15,11 +22,12 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS abierto temporalmente para pruebas locales con Flutter Web.
-# Esto permite que Flutter en Chrome pueda consumir la API aunque use un puerto aleatorio.
+# CORS configurable con la variable CORS_ORIGINS (por defecto "*", abierto,
+# para pruebas locales con Flutter Web que usa puertos aleatorios).
+# En producción conviene listar solo los dominios del panel.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,6 +40,7 @@ app.include_router(contacts_router)
 app.include_router(chats_router)
 app.include_router(notifications_router)
 app.include_router(applications_router)
+
 
 @app.get("/health", tags=["Health"])
 async def health_check() -> dict[str, str]:

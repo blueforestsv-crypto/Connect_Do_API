@@ -35,9 +35,18 @@ class User(Base):
         nullable=False,
     )
 
-    hashed_password: Mapped[str] = mapped_column(
+    # Nulo para cuentas creadas solo con Google.
+    hashed_password: Mapped[str | None] = mapped_column(
         String(255),
-        nullable=False,
+        nullable=True,
+    )
+
+    # "sub" de Google: identificador estable de la cuenta de Google.
+    google_sub: Mapped[str | None] = mapped_column(
+        String(255),
+        unique=True,
+        index=True,
+        nullable=True,
     )
 
     first_name: Mapped[str] = mapped_column(
@@ -91,20 +100,20 @@ class User(Base):
         back_populates="author",
         cascade="all, delete-orphan",
     )
-    
+
     applications_sent: Mapped[list["Application"]] = relationship(
         "Application",
         foreign_keys="Application.student_id",
         back_populates="student",
         cascade="all, delete-orphan",
-)
+    )
 
     applications_received: Mapped[list["Application"]] = relationship(
         "Application",
         foreign_keys="Application.company_id",
         back_populates="company",
         cascade="all, delete-orphan",
-)
+    )
 
     sent_contact_requests: Mapped[list["ContactRequest"]] = relationship(
         "ContactRequest",
