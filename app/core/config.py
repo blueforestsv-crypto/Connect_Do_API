@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # como serverClientId. Vacío = inicio con Google deshabilitado.
     google_client_ids: str = ""
 
+    # Notificaciones push (Firebase Cloud Messaging). Pega aquí el JSON
+    # completo de la cuenta de servicio de Firebase (una sola línea).
+    # Vacío = push deshabilitado; las notificaciones siguen en la app.
+    firebase_service_account_json: str = ""
+
     # Correo saliente por SMTP (sirve con Gmail, Resend, SendGrid, Brevo...).
     # Sin SMTP_HOST, en development el código solo se escribe en el log.
     smtp_host: str = ""

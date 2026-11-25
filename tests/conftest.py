@@ -33,6 +33,7 @@ from app.main import app  # noqa: E402
 import app.models.application  # noqa: E402,F401
 import app.models.contact_request  # noqa: E402,F401
 import app.models.cv_file  # noqa: E402,F401
+import app.models.device_token  # noqa: E402,F401
 import app.models.email_verification_token  # noqa: E402,F401
 import app.models.message  # noqa: E402,F401
 import app.models.notification  # noqa: E402,F401

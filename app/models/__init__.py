@@ -4,6 +4,7 @@ from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.models.publication import Publication
 from app.models.cv_file import CvFile
+from app.models.device_token import DeviceToken
 
 __all__ = [
     "EmailVerificationToken",
@@ -12,5 +13,6 @@ __all__ = [
     "User",
     "Publication",
     "CvFile",
+    "DeviceToken",
     "Application",
 ]
