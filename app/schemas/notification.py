@@ -24,3 +24,18 @@ class NotificationResponse(BaseModel):
 
 class NotificationUnreadCountResponse(BaseModel):
     unread_count: int
+
+
+class NotificationActorResponse(BaseModel):
+    """Quién generó el aviso (para mostrar su nombre y foto)."""
+
+    id: uuid.UUID
+    first_name: str
+    last_name: str
+    profile_image_base64: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class NotificationListItemResponse(NotificationResponse):
+    related_user: NotificationActorResponse | None = None

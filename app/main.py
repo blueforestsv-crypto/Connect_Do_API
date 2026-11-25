@@ -4,6 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes import (
+    account_router,
     auth_router,
     profiles_router,
     publications_router,
@@ -34,6 +35,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(account_router)
 app.include_router(profiles_router)
 app.include_router(publications_router)
 app.include_router(contacts_router)

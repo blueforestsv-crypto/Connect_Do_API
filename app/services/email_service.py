@@ -20,12 +20,43 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+# Textos del correo según para qué es el código.
+_TEXTS = {
+    "verify_email": {
+        "subject": "{code} es tu código de Connect Do",
+        "heading": "Verifica tu correo",
+        "intro": "Escribe este código en la app para terminar de crear tu cuenta.",
+        "plain": "Tu código para verificar tu correo en Connect Do es: {code}",
+        "footer": "Si no creaste una cuenta en Connect Do, puedes ignorar este mensaje.",
+    },
+    "password_reset": {
+        "subject": "{code} es tu código para restablecer tu contraseña",
+        "heading": "Restablece tu contraseña",
+        "intro": "Escribe este código en la app para elegir una contraseña nueva.",
+        "plain": "Tu código para restablecer tu contraseña de Connect Do es: {code}",
+        "footer": "Si no lo pediste, ignora este mensaje: tu contraseña no cambiará.",
+    },
+    "email_change": {
+        "subject": "{code} es tu código para confirmar tu nuevo correo",
+        "heading": "Confirma tu nuevo correo",
+        "intro": "Escribe este código en la app para usar este correo en tu cuenta.",
+        "plain": "Tu código para confirmar tu nuevo correo en Connect Do es: {code}",
+        "footer": "Si no lo pediste, puedes ignorar este mensaje.",
+    },
+}
+
+
 def build_verification_email(recipient: str, code: str) -> EmailMessage:
+    return build_code_email(recipient, code, "verify_email")
+
+
+def build_code_email(recipient: str, code: str, purpose: str) -> EmailMessage:
+    texts = _TEXTS.get(purpose, _TEXTS["verify_email"])
     minutes = settings.email_verification_token_expire_minutes
     spaced_code = " ".join(code)
 
     message = EmailMessage()
-    message["Subject"] = f"{code} es tu código de Connect Do"
+    message["Subject"] = texts["subject"].format(code=code)
     message["From"] = formataddr(
         (settings.email_from_name, settings.email_from_address)
     )
@@ -34,9 +65,8 @@ def build_verification_email(recipient: str, code: str) -> EmailMessage:
 
     message.set_content(
         "Hola,\n\n"
-        f"Tu código para verificar tu correo en Connect Do es: {code}\n\n"
-        f"Vence en {minutes} minutos. Si no creaste una cuenta, "
-        "ignora este mensaje.\n\n"
+        f"{texts['plain'].format(code=code)}\n\n"
+        f"Vence en {minutes} minutos. {texts['footer']}\n\n"
         "— El equipo de Connect Do"
     )
 
@@ -51,17 +81,16 @@ def build_verification_email(recipient: str, code: str) -> EmailMessage:
                style="max-width:460px;background:#FFFFFF;border:1px solid #E8EDF3;border-radius:24px;">
           <tr><td style="padding:32px 28px;">
             <div style="font-size:20px;font-weight:700;color:#2563EB;margin-bottom:24px;">Connect Do</div>
-            <h1 style="margin:0 0 8px;font-size:24px;line-height:1.2;color:#0F172A;">Verifica tu correo</h1>
+            <h1 style="margin:0 0 8px;font-size:24px;line-height:1.2;color:#0F172A;">{texts["heading"]}</h1>
             <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#475569;">
-              Escribe este código en la app para terminar de crear tu cuenta.
+              {texts["intro"]}
             </p>
             <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:14px;padding:18px;
                         text-align:center;font-size:32px;font-weight:700;letter-spacing:8px;color:#0F172A;">
               {spaced_code}
             </div>
             <p style="margin:24px 0 0;font-size:13px;line-height:1.5;color:#94A3B8;">
-              El código vence en {minutes} minutos. Si no creaste una cuenta en
-              Connect Do, puedes ignorar este mensaje.
+              El código vence en {minutes} minutos. {texts["footer"]}
             </p>
           </td></tr>
         </table>
@@ -140,10 +169,19 @@ def send_verification_email(
     recipient: str,
     code: str,
 ) -> None:
+    send_code_email(recipient, code, "verify_email")
+
+
+def send_code_email(
+    recipient: str,
+    code: str,
+    purpose: str,
+) -> None:
     if not settings.email_enabled:
         if settings.is_development:
             logger.warning(
-                "DEV verification email (sin SMTP) | recipient=%s | code=%s",
+                "DEV %s email (sin SMTP) | recipient=%s | code=%s",
+                purpose,
                 recipient,
                 code,
             )
@@ -155,7 +193,7 @@ def send_verification_email(
             )
         return
 
-    message = build_verification_email(recipient, code)
+    message = build_code_email(recipient, code, purpose)
 
     try:
         if settings.email_provider == "brevo":

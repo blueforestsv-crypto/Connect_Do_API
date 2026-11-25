@@ -137,6 +137,7 @@ async def list_publications(
     current_user_id: uuid.UUID,
     publication_type: str | None = None,
     only_active: bool = True,
+    only_mine: bool = False,
     limit: int = 20,
     offset: int = 0,
 ) -> list[Publication]:
@@ -170,6 +171,10 @@ async def list_publications(
 
     if publication_type is not None:
         query = query.where(Publication.type == publication_type)
+
+    # Perfil del usuario: solo sus publicaciones (de cualquier visibilidad).
+    if only_mine:
+        query = query.where(Publication.author_id == current_user_id)
 
     result = await session.execute(query)
 

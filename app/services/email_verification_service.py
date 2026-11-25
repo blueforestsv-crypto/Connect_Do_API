@@ -1,3 +1,14 @@
+"""Códigos de un solo uso enviados por correo.
+
+Un mismo mecanismo sirve para tres propósitos:
+- verify_email: confirmar el correo al registrarse.
+- password_reset: restablecer la contraseña olvidada.
+- email_change: confirmar un correo nuevo (se guarda en new_email).
+
+Cada código vence, admite pocos intentos y anula a los anteriores del mismo
+usuario y propósito.
+"""
+
 import hmac
 import secrets
 import uuid
@@ -11,31 +22,9 @@ from app.models.email_verification_token import EmailVerificationToken
 from app.models.user import User
 from app.services.security import hash_token
 
-
-async def can_issue_verification_token(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-) -> bool:
-    statement = (
-        select(EmailVerificationToken)
-        .where(
-            EmailVerificationToken.user_id == user_id,
-        )
-        .order_by(EmailVerificationToken.created_at.desc())
-        .limit(1)
-    )
-
-    result = await session.execute(statement)
-    latest_token = result.scalar_one_or_none()
-
-    if latest_token is None:
-        return True
-
-    resend_available_at = latest_token.created_at + timedelta(
-        seconds=settings.email_verification_resend_seconds,
-    )
-
-    return datetime.now(UTC) >= resend_available_at
+VERIFY_EMAIL = "verify_email"
+PASSWORD_RESET = "password_reset"
+EMAIL_CHANGE = "email_change"
 
 
 def _hash_code(token_id: uuid.UUID, code: str) -> str:
@@ -49,22 +38,47 @@ def _generate_code() -> str:
     return f"{secrets.randbelow(10**length):0{length}d}"
 
 
-async def create_email_verification_code(
+async def can_issue_code(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    purpose: str = VERIFY_EMAIL,
+) -> bool:
+    """Respeta la espera mínima entre reenvíos."""
+    result = await session.execute(
+        select(EmailVerificationToken)
+        .where(
+            EmailVerificationToken.user_id == user_id,
+            EmailVerificationToken.purpose == purpose,
+        )
+        .order_by(EmailVerificationToken.created_at.desc())
+        .limit(1)
+    )
+    latest = result.scalar_one_or_none()
+
+    if latest is None:
+        return True
+
+    resend_at = latest.created_at + timedelta(
+        seconds=settings.email_verification_resend_seconds,
+    )
+    return datetime.now(UTC) >= resend_at
+
+
+async def create_code(
     session: AsyncSession,
     user: User,
+    purpose: str = VERIFY_EMAIL,
+    new_email: str | None = None,
 ) -> str:
-    """Revoca los códigos pendientes del usuario y emite uno nuevo."""
+    """Anula los códigos pendientes del mismo propósito y emite uno nuevo."""
     code = _generate_code()
-
     now = datetime.now(UTC)
-    expires_at = now + timedelta(
-        minutes=settings.email_verification_token_expire_minutes,
-    )
 
-    revoke_statement = (
+    revoke = (
         update(EmailVerificationToken)
         .where(
             EmailVerificationToken.user_id == user.id,
+            EmailVerificationToken.purpose == purpose,
             EmailVerificationToken.used_at.is_(None),
             EmailVerificationToken.revoked_at.is_(None),
         )
@@ -72,16 +86,19 @@ async def create_email_verification_code(
     )
 
     token_id = uuid.uuid4()
-    token_record = EmailVerificationToken(
+    record = EmailVerificationToken(
         id=token_id,
         user_id=user.id,
         token_hash=_hash_code(token_id, code),
-        expires_at=expires_at,
+        purpose=purpose,
+        new_email=new_email,
+        expires_at=now
+        + timedelta(minutes=settings.email_verification_token_expire_minutes),
     )
 
     try:
-        await session.execute(revoke_statement)
-        session.add(token_record)
+        await session.execute(revoke)
+        session.add(record)
         await session.commit()
     except Exception:
         await session.rollback()
@@ -90,22 +107,22 @@ async def create_email_verification_code(
     return code
 
 
-async def confirm_email_verification_code(
+async def consume_code(
     session: AsyncSession,
     user: User,
     code: str,
-) -> bool:
-    """Valida el código vigente del usuario.
-
-    Cada intento fallido suma al contador; al llegar al máximo el código
-    se revoca y hay que solicitar uno nuevo.
-    """
+    purpose: str = VERIFY_EMAIL,
+) -> EmailVerificationToken | None:
+    """Valida el código vigente. Si es correcto lo marca como usado (sin hacer
+    commit: quien llama aplica su cambio y confirma todo junto). Si no, suma
+    un intento fallido y, al llegar al máximo, anula el código."""
     now = datetime.now(UTC)
 
-    statement = (
+    result = await session.execute(
         select(EmailVerificationToken)
         .where(
             EmailVerificationToken.user_id == user.id,
+            EmailVerificationToken.purpose == purpose,
             EmailVerificationToken.used_at.is_(None),
             EmailVerificationToken.revoked_at.is_(None),
             EmailVerificationToken.expires_at > now,
@@ -114,32 +131,57 @@ async def confirm_email_verification_code(
         .limit(1)
         .with_for_update()
     )
+    record = result.scalar_one_or_none()
 
-    result = await session.execute(statement)
-    token_record = result.scalar_one_or_none()
+    if record is None or not user.is_active:
+        return None
 
-    if token_record is None or not user.is_active:
+    if not hmac.compare_digest(_hash_code(record.id, code.strip()), record.token_hash):
+        record.failed_attempts += 1
+        if record.failed_attempts >= settings.email_verification_max_attempts:
+            record.revoked_at = now
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        return None
+
+    record.used_at = now
+    return record
+
+
+# =====================================================
+# VERIFICACIÓN DE CORREO (nombres usados por las rutas existentes)
+# =====================================================
+async def can_issue_verification_token(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+) -> bool:
+    return await can_issue_code(session, user_id, VERIFY_EMAIL)
+
+
+async def create_email_verification_code(
+    session: AsyncSession,
+    user: User,
+) -> str:
+    return await create_code(session, user, VERIFY_EMAIL)
+
+
+async def confirm_email_verification_code(
+    session: AsyncSession,
+    user: User,
+    code: str,
+) -> bool:
+    record = await consume_code(session, user, code, VERIFY_EMAIL)
+    if record is None:
         return False
 
-    expected_hash = _hash_code(token_record.id, code.strip())
-
+    user.is_verified = True
     try:
-        if not hmac.compare_digest(expected_hash, token_record.token_hash):
-            token_record.failed_attempts += 1
-
-            if token_record.failed_attempts >= settings.email_verification_max_attempts:
-                token_record.revoked_at = now
-
-            await session.commit()
-            return False
-
-        token_record.used_at = now
-        user.is_verified = True
-
         await session.commit()
         await session.refresh(user)
     except Exception:
         await session.rollback()
         raise
-
     return True

@@ -202,3 +202,32 @@ async def test_autor_de_la_publicacion_puede_moderar_comentarios(client, ana_y_l
     # La autora de la publicación sí.
     assert (await client.delete(f"{url}/{comment_id}", headers=ana)).status_code == 204
     assert (await client.get(url, headers=ana)).json() == []
+
+
+# =====================================================
+# PERFIL: MIS PUBLICACIONES
+# =====================================================
+async def test_filtro_mine_devuelve_solo_mis_publicaciones(client, ana_y_luis):
+    ana, luis = ana_y_luis
+    mine_public = await make_publication(client, ana)
+    mine_private = await make_publication(client, ana, visibility="private")
+    await make_publication(client, luis)
+
+    response = await client.get("/publications", params={"mine": "true"}, headers=ana)
+
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()}
+    assert ids == {mine_public, mine_private}
+    assert all(item["is_mine"] for item in response.json())
+
+
+async def test_notificaciones_incluyen_quien_las_genero(client, ana_y_luis):
+    ana, luis = ana_y_luis
+    publication_id = await make_publication(client, ana)
+    await client.post(f"/publications/{publication_id}/like", headers=luis)
+
+    notifications = (await client.get("/notifications", headers=ana)).json()
+    like = next(n for n in notifications if n["type"] == "like")
+
+    assert like["related_user"]["first_name"] == "Luis"
+    assert like["related_publication_id"] == publication_id

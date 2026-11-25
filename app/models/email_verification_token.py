@@ -50,6 +50,21 @@ class EmailVerificationToken(Base):
         nullable=True,
     )
 
+    # Para qué sirve el código: verify_email, password_reset o email_change.
+    purpose: Mapped[str] = mapped_column(
+        String(30),
+        default="verify_email",
+        server_default="verify_email",
+        nullable=False,
+        index=True,
+    )
+
+    # Solo para email_change: el correo nuevo que se está confirmando.
+    new_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
     failed_attempts: Mapped[int] = mapped_column(
         Integer,
         default=0,

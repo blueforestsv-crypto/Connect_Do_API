@@ -127,6 +127,7 @@ async def create_publication_endpoint(
 )
 async def list_publications_endpoint(
     publication_type: str | None = Query(default=None, alias="type"),
+    mine: bool = Query(default=False, description="Solo mis publicaciones"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -136,6 +137,7 @@ async def list_publications_endpoint(
         session=session,
         current_user_id=current_user.id,
         publication_type=publication_type,
+        only_mine=mine,
         limit=limit,
         offset=offset,
     )

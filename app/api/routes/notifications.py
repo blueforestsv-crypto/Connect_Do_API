@@ -3,12 +3,14 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.notification import Notification
 from app.models.user import User
 from app.schemas.notification import (
+    NotificationListItemResponse,
     NotificationResponse,
     NotificationUnreadCountResponse,
 )
@@ -19,7 +21,7 @@ router = APIRouter(
 )
 
 
-@router.get("", response_model=list[NotificationResponse])
+@router.get("", response_model=list[NotificationListItemResponse])
 async def get_my_notifications(
     limit: int = 50,
     offset: int = 0,
@@ -28,6 +30,7 @@ async def get_my_notifications(
 ):
     stmt = (
         select(Notification)
+        .options(selectinload(Notification.related_user).selectinload(User.profile))
         .where(Notification.user_id == current_user.id)
         .order_by(Notification.created_at.desc())
         .limit(limit)
