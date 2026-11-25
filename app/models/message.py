@@ -2,7 +2,8 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,6 +40,12 @@ class Message(Base):
         Text,
         nullable=False,
     )
+
+    # Adjunto opcional (Cloudinary): image | video | audio.
+    attachment_type: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    attachment_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # width, height, duration (segundos), size_bytes.
+    attachment_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     is_read: Mapped[bool] = mapped_column(
         Boolean,

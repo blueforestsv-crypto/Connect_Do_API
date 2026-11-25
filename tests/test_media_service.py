@@ -83,3 +83,31 @@ def test_el_feed_no_muestra_el_correo_del_autor():
         id=uuid.uuid4(), first_name="Ana", last_name="López", email="ana@ues.edu.sv"
     )
     assert author.email == ""
+
+
+# =====================================================
+# CHAT
+# =====================================================
+def test_mensaje_con_nota_de_voz_sin_texto(cloudinary):
+    from app.schemas.chat import MessageCreate
+
+    url = "https://res.cloudinary.com/connectdo/video/upload/v1/connect_do/chat/u/n.m4a"
+    message = MessageCreate(attachment={"type": "audio", "url": url, "duration": 7.5})
+    assert message.attachment.meta() == {"duration": 7.5}
+
+
+def test_mensaje_vacio_o_con_enlace_ajeno_no_vale(cloudinary):
+    from app.schemas.chat import MessageCreate
+
+    with pytest.raises(ValidationError):
+        MessageCreate(content="   ")
+    with pytest.raises(ValidationError):
+        MessageCreate(attachment={"type": "image", "url": "https://otro.com/x.jpg"})
+
+
+def test_vista_previa_del_mensaje():
+    from app.api.routes.chats import message_preview
+
+    assert message_preview("Hola", None) == "Hola"
+    assert message_preview("", "audio") == "🎤 Nota de voz"
+    assert message_preview("mira", "image") == "📷 Foto · mira"

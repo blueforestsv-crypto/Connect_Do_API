@@ -13,6 +13,7 @@ from app.models.notification import Notification
 from app.models.profile import Profile
 from app.models.user import User
 from app.schemas.chat import (
+    MessageAttachmentResponse,
     ChatUserResponse,
     ConversationResponse,
     MessageCreate,
@@ -61,11 +62,36 @@ def _build_message(message: Message, include_images: bool = True) -> MessageResp
         sender_id=message.sender_id,
         receiver_id=message.receiver_id,
         content=message.content,
+        attachment=(
+            MessageAttachmentResponse(
+                type=message.attachment_type,
+                url=message.attachment_url,
+                **(message.attachment_meta or {}),
+            )
+            if message.attachment_type and message.attachment_url
+            else None
+        ),
         is_read=message.is_read,
         created_at=message.created_at,
         sender=_build_chat_user(message.sender, include_images),
         receiver=_build_chat_user(message.receiver, include_images),
     )
+
+
+_ATTACHMENT_LABELS = {
+    "image": "📷 Foto",
+    "video": "🎥 Video",
+    "audio": "🎤 Nota de voz",
+}
+
+
+def message_preview(content: str, attachment_type: str | None) -> str:
+    """Texto corto para la notificación (y el push) de un mensaje."""
+    text = content.strip()
+    if attachment_type:
+        label = _ATTACHMENT_LABELS.get(attachment_type, "📎 Archivo")
+        return f"{label} · {text}" if text else label
+    return text[:120] + ("…" if len(text) > 120 else "")
 
 
 def _get_full_name(user: User) -> str:
@@ -377,17 +403,15 @@ async def send_message_to_contact(
         )
 
     clean_content = message_data.content.strip()
-
-    if not clean_content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El mensaje no puede estar vacío.",
-        )
+    attachment = message_data.attachment
 
     message = Message(
         sender_id=current_user.id,
         receiver_id=contact.id,
         content=clean_content,
+        attachment_type=attachment.type if attachment else None,
+        attachment_url=attachment.url if attachment else None,
+        attachment_meta=attachment.meta() if attachment else None,
         is_read=False,
     )
 
@@ -400,8 +424,8 @@ async def send_message_to_contact(
     notification = Notification(
         user_id=contact.id,
         type="message",
-        title="Nuevo mensaje",
-        message=f"{sender_name} te envió un mensaje.",
+        title=sender_name,
+        message=message_preview(clean_content, attachment.type if attachment else None),
         related_user_id=current_user.id,
         related_message_id=message.id,
         is_read=False,
