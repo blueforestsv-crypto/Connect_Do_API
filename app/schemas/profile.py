@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ProfileUpdate(BaseModel):
@@ -42,6 +42,20 @@ class ProfileUpdate(BaseModel):
         default=None,
         max_length=500,
     )
+    skills: list[str] | None = Field(default=None, max_length=10)
+
+    @field_validator("skills")
+    @classmethod
+    def clean_skills(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        cleaned: list[str] = []
+        for skill in value:
+            skill = skill.strip()[:50]
+            if skill and skill not in cleaned:
+                cleaned.append(skill)
+        return cleaned
+
     is_private: bool | None = None
 
 
@@ -59,9 +73,44 @@ class ProfileResponse(BaseModel):
     avatar_url: str | None
     profile_image_base64: str | None
     cv_url: str | None
+    skills: list[str] | None = None
     is_private: bool
 
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PublicProfileResponse(BaseModel):
+    """Perfil visto por otra persona. Correo y teléfono solo para contactos."""
+
+    user_id: uuid.UUID
+    first_name: str
+    last_name: str
+    profile_image_base64: str | None = None
+    avatar_url: str | None = None
+
+    university: str | None = None
+    academic_level: str | None = None
+    career: str | None = None
+    academic_cycle: str | None = None
+    bio: str | None = None
+    portfolio_url: str | None = None
+    skills: list[str] = []
+    has_cv: bool = False
+
+    email: str | None = None
+    phone: str | None = None
+
+    is_me: bool = False
+    # none | pending_sent | pending_received | accepted
+    contact_status: str = "none"
+    contact_request_id: uuid.UUID | None = None
+
+
+class CvLinkResponse(BaseModel):
+    # Ruta relativa al servidor; vence en expires_in segundos.
+    path: str
+    file_name: str
+    expires_in: int

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -68,15 +68,20 @@ class Profile(Base):
         String(500),
         nullable=True,
     )
-    
+
     profile_image_base64: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
-         
 
     cv_url: Mapped[str | None] = mapped_column(
         String(500),
+        nullable=True,
+    )
+
+    # Habilidades visibles en el perfil (lista de textos cortos).
+    skills: Mapped[list[str] | None] = mapped_column(
+        JSONB,
         nullable=True,
     )
 

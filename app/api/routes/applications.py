@@ -23,6 +23,20 @@ from app.schemas.application import (
 
 router = APIRouter(prefix="/applications", tags=["Applications"])
 
+_RELATIONS = (
+    selectinload(Application.publication),
+    selectinload(Application.student).selectinload(User.profile),
+    selectinload(Application.company),
+)
+
+# Texto que recibe el estudiante cuando la empresa cambia su estado.
+_STATUS_NOTICES = {
+    "reviewed": "revisó tu postulación",
+    "interview": "quiere entrevistarte",
+    "selected": "te seleccionó",
+    "rejected": "decidió no continuar con tu postulación",
+}
+
 
 def _build_profile_snapshot(user: User) -> dict:
     profile = user.__dict__.get("profile")
@@ -61,9 +75,7 @@ async def _get_application_with_relations(
     result = await session.execute(
         select(Application)
         .options(
-            selectinload(Application.publication),
-            selectinload(Application.student),
-            selectinload(Application.company),
+            *_RELATIONS,
         )
         .where(Application.id == application_id)
     )
@@ -92,16 +104,21 @@ async def create_application_endpoint(
     if publication is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Publication not found",
+            detail="La publicación no existe.",
         )
 
     if publication.author_id == current_user.id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You cannot apply to your own publication",
+            detail="No puedes postularte a tu propia publicación.",
         )
 
-    profile_snapshot = _build_profile_snapshot(current_user)
+    student_result = await session.execute(
+        select(User)
+        .options(selectinload(User.profile))
+        .where(User.id == current_user.id)
+    )
+    profile_snapshot = _build_profile_snapshot(student_result.scalar_one())
 
     application = Application(
         publication_id=publication.id,
@@ -116,13 +133,26 @@ async def create_application_endpoint(
     session.add(application)
 
     try:
+        await session.flush()
+        session.add(
+            Notification(
+                user_id=publication.author_id,
+                type="application_new",
+                title="Nueva postulación",
+                message=f"{_get_full_name(current_user)} se postuló a "
+                f"«{publication.title}».",
+                related_user_id=current_user.id,
+                related_publication_id=publication.id,
+                is_read=False,
+            )
+        )
         await session.commit()
     except IntegrityError:
         await session.rollback()
 
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="You already applied to this publication",
+            detail="Ya te postulaste a esta oportunidad.",
         )
 
     created_application = await _get_application_with_relations(
@@ -133,7 +163,7 @@ async def create_application_endpoint(
     if created_application is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Application could not be loaded",
+            detail="No se pudo cargar la postulación.",
         )
 
     return created_application
@@ -150,9 +180,7 @@ async def list_my_applications_endpoint(
     result = await session.execute(
         select(Application)
         .options(
-            selectinload(Application.publication),
-            selectinload(Application.student),
-            selectinload(Application.company),
+            *_RELATIONS,
         )
         .where(Application.student_id == current_user.id)
         .order_by(Application.created_at.desc())
@@ -172,9 +200,7 @@ async def list_received_applications_endpoint(
     result = await session.execute(
         select(Application)
         .options(
-            selectinload(Application.publication),
-            selectinload(Application.student),
-            selectinload(Application.company),
+            *_RELATIONS,
         )
         .where(Application.company_id == current_user.id)
         .order_by(Application.created_at.desc())
@@ -200,21 +226,19 @@ async def list_publication_applications_endpoint(
     if publication is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Publication not found",
+            detail="La publicación no existe.",
         )
 
     if publication.author_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only view applications for your own publications",
+            detail="Solo puedes ver las postulaciones de tus publicaciones.",
         )
 
     result = await session.execute(
         select(Application)
         .options(
-            selectinload(Application.publication),
-            selectinload(Application.student),
-            selectinload(Application.company),
+            *_RELATIONS,
         )
         .where(Application.publication_id == publication_id)
         .order_by(Application.created_at.desc())
@@ -241,16 +265,33 @@ async def update_application_status_endpoint(
     if application is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Application not found",
+            detail="La postulación no existe.",
         )
 
     if application.company_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only update applications received by your company",
+            detail="Solo puedes cambiar postulaciones que recibiste.",
         )
 
+    changed = application.status != application_data.status
     application.status = application_data.status
+
+    notice = _STATUS_NOTICES.get(application_data.status)
+    if changed and notice:
+        publication = await session.get(Publication, application.publication_id)
+        title = publication.title if publication else "una oportunidad"
+        session.add(
+            Notification(
+                user_id=application.student_id,
+                type="application_status",
+                title="Tu postulación",
+                message=f"{_get_full_name(current_user)} {notice} en «{title}».",
+                related_user_id=current_user.id,
+                related_publication_id=application.publication_id,
+                is_read=False,
+            )
+        )
 
     await session.commit()
 
@@ -262,7 +303,7 @@ async def update_application_status_endpoint(
     if updated_application is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Application could not be loaded",
+            detail="No se pudo cargar la postulación.",
         )
 
     return updated_application
@@ -282,9 +323,7 @@ async def contact_application_student_endpoint(
     result = await session.execute(
         select(Application)
         .options(
-            selectinload(Application.student),
-            selectinload(Application.company),
-            selectinload(Application.publication),
+            *_RELATIONS,
         )
         .where(Application.id == application_id)
     )
@@ -294,13 +333,13 @@ async def contact_application_student_endpoint(
     if application is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Application not found",
+            detail="La postulación no existe.",
         )
 
     if application.company_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only contact students from applications received by your company",
+            detail="Solo puedes contactar a quien se postuló a tus publicaciones.",
         )
 
     clean_content = contact_data.content.strip()
@@ -308,7 +347,7 @@ async def contact_application_student_endpoint(
     if not clean_content:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Message content cannot be empty",
+            detail="El mensaje no puede estar vacío.",
         )
 
     message = Message(
@@ -347,3 +386,32 @@ async def contact_application_student_endpoint(
         company_id=application.company_id,
         content=message.content,
     )
+
+
+@router.delete(
+    "/{application_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Retirar mi postulación",
+)
+async def withdraw_application_endpoint(
+    application_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> None:
+    application = await session.get(Application, application_id)
+
+    if application is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "La postulación no existe.")
+    if application.student_id != current_user.id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Solo puedes retirar tus propias postulaciones.",
+        )
+    if application.status == "selected":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Ya fuiste seleccionado; habla con la empresa para retirarte.",
+        )
+
+    await session.delete(application)
+    await session.commit()
