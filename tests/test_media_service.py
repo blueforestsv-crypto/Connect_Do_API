@@ -159,3 +159,11 @@ async def test_migracion_de_fotos_sube_base64(cloudinary, monkeypatch):
     assert sent["url"].endswith("/connectdo/image/upload")
     assert sent["data"]["file"] == "data:image/jpeg;base64,aGVsbG8="
     assert "secreto" not in str(sent["data"])
+
+
+def test_notas_de_voz_de_android_se_aceptan(cloudinary):
+    # Android graba AAC en contenedor MPEG-4 y Cloudinary lo ve como "mp4".
+    formats = media_service.sign_upload(uuid.uuid4(), "chat", "audio")[
+        "allowed_formats"
+    ].split(",")
+    assert {"mp4", "m4a", "aac"} <= set(formats)

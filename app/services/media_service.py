@@ -28,7 +28,9 @@ MediaKind = Literal["image", "video", "audio"]
 _FORMATS: dict[str, str] = {
     "image": "jpg,jpeg,png,webp,heic,heif,gif",
     "video": "mp4,mov,m4v,3gp,webm,mkv",
-    "audio": "m4a,aac,mp3,wav,ogg,opus,webm,3gp",
+    # Android graba AAC dentro de un contenedor MPEG-4: Cloudinary lo
+    # identifica como "mp4" aunque el archivo se llame .m4a.
+    "audio": "mp4,m4a,aac,mp3,wav,ogg,oga,opus,webm,3gp,amr,flac,caf",
 }
 
 # Límites que la app respeta antes de subir (Cloudinary gratis: 10 MB por
