@@ -111,3 +111,51 @@ def test_vista_previa_del_mensaje():
     assert message_preview("Hola", None) == "Hola"
     assert message_preview("", "audio") == "🎤 Nota de voz"
     assert message_preview("mira", "image") == "📷 Foto · mira"
+
+
+# =====================================================
+# AHORRO DE DATOS
+# =====================================================
+def test_respuestas_grandes_van_comprimidas():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as client:
+        response = client.get("/privacidad", headers={"Accept-Encoding": "gzip"})
+
+    assert response.status_code == 200
+    assert response.headers.get("content-encoding") == "gzip"
+
+
+async def test_migracion_de_fotos_sube_base64(cloudinary, monkeypatch):
+    sent = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"secure_url": "https://res.cloudinary.com/connectdo/a.jpg"}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, data):
+            sent.update(url=url, data=data)
+            return FakeResponse()
+
+    monkeypatch.setattr(media_service.httpx, "AsyncClient", FakeClient)
+
+    url = await media_service.upload_base64_image("aGVsbG8=", "connect_do/avatar/u")
+
+    assert url == "https://res.cloudinary.com/connectdo/a.jpg"
+    assert sent["url"].endswith("/connectdo/image/upload")
+    assert sent["data"]["file"] == "data:image/jpeg;base64,aGVsbG8="
+    assert "secreto" not in str(sent["data"])

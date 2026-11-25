@@ -1,7 +1,8 @@
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, case, func, or_, select, update
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import and_, case, func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -311,15 +312,39 @@ async def get_conversations(
 
 
 @router.get(
+    "/unread-count",
+    summary="Total de mensajes sin leer (respuesta mínima, para el contador)",
+)
+async def get_unread_count(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, int]:
+    result = await session.execute(
+        select(func.count())
+        .select_from(Message)
+        .where(
+            Message.receiver_id == current_user.id,
+            Message.is_read.is_(False),
+        )
+    )
+    return {"total": int(result.scalar_one())}
+
+
+@router.get(
     "/{contact_id}/messages",
     response_model=list[MessageResponse],
     summary="Ver mensajes con un contacto",
 )
 async def get_messages_with_contact(
     contact_id: uuid.UUID,
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     include_images: bool = True,
+    after: datetime | None = Query(
+        default=None,
+        description="Solo los mensajes posteriores a esta fecha (para "
+        "actualizar el chat sin descargarlo completo).",
+    ),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[MessageResponse]:
@@ -354,6 +379,7 @@ async def get_messages_with_contact(
                 ),
             )
         )
+        .where(Message.created_at > after if after is not None else true())
         .options(
             _profile_loader(Message.sender, include_images),
             _profile_loader(Message.receiver, include_images),

@@ -142,3 +142,70 @@ async def destroy(urls: list[str]) -> None:
                 )
             except httpx.HTTPError as error:
                 logger.warning("No se pudo borrar %s de Cloudinary: %s", url, error)
+
+
+# =====================================================
+# FOTOS DE PERFIL ANTIGUAS (base64 -> Cloudinary)
+# =====================================================
+async def upload_base64_image(data: str, folder: str) -> str | None:
+    """Sube una imagen en base64 desde el servidor. Devuelve el enlace."""
+    if not is_enabled():
+        return None
+    clean = data.split(",", 1)[1] if data.startswith("data:") else data
+    params = {"folder": folder, "timestamp": str(int(time.time()))}
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            "https://api.cloudinary.com/v1_1/"
+            f"{settings.cloudinary_cloud_name}/image/upload",
+            data={
+                **params,
+                "api_key": settings.cloudinary_api_key,
+                "signature": _sign(params),
+                "file": f"data:image/jpeg;base64,{clean.strip()}",
+            },
+        )
+    if response.status_code != 200:
+        logger.warning("No se pudo migrar una foto: %s", response.text[:200])
+        return None
+    return response.json().get("secure_url")
+
+
+async def migrate_legacy_avatars(limit: int = 200) -> int:
+    """Pasa a Cloudinary las fotos de perfil que siguen en base64, para que
+    no viajen completas en cada respuesta. Se ejecuta al arrancar; es seguro
+    repetirlo (solo toca las que aún no son enlaces)."""
+    if not is_enabled():
+        return 0
+
+    from sqlalchemy import select
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.profile import Profile
+
+    migrated = 0
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Profile)
+            .where(
+                Profile.profile_image_base64.is_not(None),
+                Profile.profile_image_base64 != "",
+                ~Profile.profile_image_base64.startswith("http"),
+            )
+            .limit(limit)
+        )
+        for profile in result.scalars().all():
+            try:
+                url = await upload_base64_image(
+                    profile.profile_image_base64,
+                    f"connect_do/avatar/{profile.user_id}",
+                )
+            except httpx.HTTPError:
+                url = None
+            if url:
+                profile.profile_image_base64 = url
+                profile.avatar_url = url
+                migrated += 1
+                await session.commit()
+    if migrated:
+        logger.info("Fotos de perfil migradas a Cloudinary: %s", migrated)
+    return migrated
