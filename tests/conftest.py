@@ -34,6 +34,7 @@ import app.models.application  # noqa: E402,F401
 import app.models.contact_request  # noqa: E402,F401
 import app.models.cv_file  # noqa: E402,F401
 import app.models.device_token  # noqa: E402,F401
+import app.models.story  # noqa: E402,F401
 import app.models.email_verification_token  # noqa: E402,F401
 import app.models.message  # noqa: E402,F401
 import app.models.notification  # noqa: E402,F401
@@ -72,6 +73,10 @@ def _isolated_settings(monkeypatch):
     monkeypatch.setattr(settings, "brevo_api_key", "")
     monkeypatch.setattr(settings, "email_from_address", "")
     monkeypatch.setattr(settings, "google_client_ids", "")
+    # Nunca usar llaves reales aunque estén en un .env local.
+    monkeypatch.setattr(settings, "firebase_service_account_json", "")
+    monkeypatch.setattr(settings, "cloudinary_api_secret", "")
+    monkeypatch.setattr(settings, "cloudinary_api_key", "")
 
 
 @pytest.fixture

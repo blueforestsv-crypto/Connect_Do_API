@@ -5,6 +5,7 @@ from app.models.user import User
 from app.models.publication import Publication
 from app.models.cv_file import CvFile
 from app.models.device_token import DeviceToken
+from app.models.story import Story, StoryView
 
 __all__ = [
     "EmailVerificationToken",
@@ -14,5 +15,7 @@ __all__ = [
     "Publication",
     "CvFile",
     "DeviceToken",
+    "Story",
+    "StoryView",
     "Application",
 ]
