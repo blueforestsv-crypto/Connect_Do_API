@@ -9,6 +9,8 @@ registran en el log.
 import logging
 import smtplib
 import ssl
+
+import httpx
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
 
@@ -76,7 +78,41 @@ def build_verification_email(recipient: str, code: str) -> EmailMessage:
     return message
 
 
-def _send(message: EmailMessage) -> None:
+class EmailSendError(Exception):
+    pass
+
+
+def _send_brevo(message: EmailMessage) -> None:
+    """Envía por la API HTTPS de Brevo (no usa puertos SMTP)."""
+    plain = message.get_body(preferencelist=("plain",))
+    html = message.get_body(preferencelist=("html",))
+
+    response = httpx.post(
+        settings.brevo_api_url,
+        headers={
+            "api-key": settings.brevo_api_key,
+            "accept": "application/json",
+            "content-type": "application/json",
+        },
+        json={
+            "sender": {
+                "name": settings.email_from_name,
+                "email": settings.email_from_address,
+            },
+            "to": [{"email": message["To"]}],
+            "subject": message["Subject"],
+            "textContent": plain.get_content() if plain else "",
+            "htmlContent": html.get_content() if html else "",
+        },
+        timeout=settings.email_http_timeout_seconds,
+    )
+
+    if response.status_code >= 300:
+        # El cuerpo explica el motivo (remitente sin verificar, clave inválida...).
+        raise EmailSendError(f"Brevo respondió {response.status_code}: {response.text}")
+
+
+def _send_smtp(message: EmailMessage) -> None:
     timeout = settings.smtp_timeout_seconds
     context = ssl.create_default_context()
 
@@ -113,14 +149,27 @@ def send_verification_email(
             )
         else:
             logger.error(
-                "No se envió el código a %s: falta configurar SMTP_HOST y "
-                "EMAIL_FROM_ADDRESS.",
+                "No se envió el código a %s: falta configurar BREVO_API_KEY "
+                "(o SMTP_HOST) y EMAIL_FROM_ADDRESS.",
                 recipient,
             )
         return
 
+    message = build_verification_email(recipient, code)
+
     try:
-        _send(build_verification_email(recipient, code))
-        logger.info("Código de verificación enviado a %s", recipient)
-    except (smtplib.SMTPException, OSError):
-        logger.exception("Falló el envío del código de verificación a %s", recipient)
+        if settings.email_provider == "brevo":
+            _send_brevo(message)
+        else:
+            _send_smtp(message)
+        logger.info(
+            "Código de verificación enviado a %s (%s)",
+            recipient,
+            settings.email_provider,
+        )
+    except (smtplib.SMTPException, OSError, httpx.HTTPError, EmailSendError):
+        logger.exception(
+            "Falló el envío del código de verificación a %s (%s)",
+            recipient,
+            settings.email_provider,
+        )

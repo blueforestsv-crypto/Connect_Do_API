@@ -67,6 +67,7 @@ def _isolated_settings(monkeypatch):
     """Cada prueba arranca sin SMTP ni Google configurados, en development."""
     monkeypatch.setattr(settings, "app_env", "development")
     monkeypatch.setattr(settings, "smtp_host", "")
+    monkeypatch.setattr(settings, "brevo_api_key", "")
     monkeypatch.setattr(settings, "email_from_address", "")
     monkeypatch.setattr(settings, "google_client_ids", "")
 

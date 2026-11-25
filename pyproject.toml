@@ -18,6 +18,7 @@ dependencies = [
     "pwdlib[argon2]",
     "PyJWT[crypto]",
     "email-validator",
+    "httpx",
 ]
 
 [project.optional-dependencies]

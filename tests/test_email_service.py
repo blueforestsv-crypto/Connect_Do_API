@@ -113,3 +113,69 @@ def test_fallo_smtp_se_registra_sin_lanzar(smtp_configured, monkeypatch, caplog)
         email_service.send_verification_email("ana@utec.edu.sv", "654321")
 
     assert "Falló el envío" in caplog.text
+
+
+# =====================================================
+# BREVO (API HTTPS)
+# =====================================================
+class FakeResponse:
+    def __init__(self, status_code: int, text: str = ""):
+        self.status_code = status_code
+        self.text = text
+
+
+@pytest.fixture
+def brevo_configured(monkeypatch):
+    calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append({"url": url, "headers": headers, "json": json})
+        return FakeResponse(201, '{"messageId": "abc"}')
+
+    monkeypatch.setattr(settings, "brevo_api_key", "xkeysib-prueba")
+    monkeypatch.setattr(settings, "email_from_address", "connectdo@gmail.com")
+    monkeypatch.setattr(email_service.httpx, "post", fake_post)
+    monkeypatch.setattr(
+        email_service.smtplib,
+        "SMTP",
+        lambda *a, **k: pytest.fail("Con Brevo no se debe usar SMTP"),
+    )
+    return calls
+
+
+def test_con_brevo_envia_por_https_y_no_por_smtp(brevo_configured):
+    email_service.send_verification_email("ana@gmail.com", "482913")
+
+    assert len(brevo_configured) == 1
+    call = brevo_configured[0]
+    assert call["url"] == settings.brevo_api_url
+    assert call["headers"]["api-key"] == "xkeysib-prueba"
+    assert call["json"]["to"] == [{"email": "ana@gmail.com"}]
+    assert call["json"]["sender"]["email"] == "connectdo@gmail.com"
+    assert "482913" in call["json"]["subject"]
+    assert "4 8 2 9 1 3" in call["json"]["htmlContent"]
+    assert "482913" in call["json"]["textContent"]
+
+
+def test_brevo_tiene_prioridad_sobre_smtp(brevo_configured, monkeypatch):
+    monkeypatch.setattr(settings, "smtp_host", "smtp.gmail.com")
+
+    assert settings.email_provider == "brevo"
+    email_service.send_verification_email("ana@gmail.com", "482913")
+    assert len(brevo_configured) == 1
+
+
+def test_error_de_brevo_se_registra_sin_lanzar(monkeypatch, caplog):
+    monkeypatch.setattr(settings, "brevo_api_key", "xkeysib-prueba")
+    monkeypatch.setattr(settings, "email_from_address", "connectdo@gmail.com")
+    monkeypatch.setattr(
+        email_service.httpx,
+        "post",
+        lambda *a, **k: FakeResponse(400, '{"message":"sender not valid"}'),
+    )
+
+    with caplog.at_level(logging.ERROR):
+        email_service.send_verification_email("ana@gmail.com", "482913")
+
+    assert "Falló el envío" in caplog.text
+    assert "sender not valid" in caplog.text

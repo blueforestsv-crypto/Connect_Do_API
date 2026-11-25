@@ -44,9 +44,23 @@ class Settings(BaseSettings):
     email_from_address: str = ""
     email_from_name: str = "Connect Do"
 
+    # Brevo (API por HTTPS). Si hay clave, se usa en lugar de SMTP: Render
+    # bloquea los puertos SMTP en el plan gratis, pero no HTTPS.
+    brevo_api_key: str = ""
+    brevo_api_url: str = "https://api.brevo.com/v3/smtp/email"
+    email_http_timeout_seconds: int = 15
+
+    @property
+    def email_provider(self) -> str:
+        if self.brevo_api_key:
+            return "brevo"
+        if self.smtp_host:
+            return "smtp"
+        return ""
+
     @property
     def email_enabled(self) -> bool:
-        return bool(self.smtp_host and self.email_from_address)
+        return bool(self.email_provider and self.email_from_address)
 
     @property
     def is_development(self) -> bool:
