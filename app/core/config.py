@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # Vacío = push deshabilitado; las notificaciones siguen en la app.
     firebase_service_account_json: str = ""
 
+    # Correo de soporte que aparece en la política de privacidad.
+    support_email: str = ""
+
     # Correo saliente por SMTP (sirve con Gmail, Resend, SendGrid, Brevo...).
     # Sin SMTP_HOST, en development el código solo se escribe en el log.
     smtp_host: str = ""
