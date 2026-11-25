@@ -17,6 +17,7 @@ from app.schemas.publication import (
     PublicationCreate,
     PublicationResponse,
     PublicationUpdate,
+    SaveResponse,
 )
 from app.services.publication_interaction_service import (
     build_publication_response,
@@ -26,6 +27,7 @@ from app.services.publication_interaction_service import (
     get_comment,
     like_publication,
     list_comments,
+    set_saved,
     unlike_publication,
     update_comment,
 )
@@ -128,6 +130,9 @@ async def create_publication_endpoint(
 async def list_publications_endpoint(
     publication_type: str | None = Query(default=None, alias="type"),
     mine: bool = Query(default=False, description="Solo mis publicaciones"),
+    saved: bool = Query(default=False, description="Solo las que guardé"),
+    author_id: uuid.UUID | None = Query(default=None, alias="author"),
+    q: str | None = Query(default=None, max_length=100, description="Buscar"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -138,6 +143,9 @@ async def list_publications_endpoint(
         current_user_id=current_user.id,
         publication_type=publication_type,
         only_mine=mine,
+        only_saved=saved,
+        author_id=author_id,
+        search=q,
         limit=limit,
         offset=offset,
     )
@@ -272,6 +280,32 @@ async def _get_visible_publication(
         )
 
     return publication
+
+
+@router.put("/{publication_id}/save", response_model=SaveResponse)
+async def save_publication_endpoint(
+    publication_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> SaveResponse:
+    publication = await _get_visible_publication(session, publication_id, current_user)
+    await set_saved(session, publication, current_user, saved=True)
+    return SaveResponse(saved=True)
+
+
+@router.delete("/{publication_id}/save", response_model=SaveResponse)
+async def unsave_publication_endpoint(
+    publication_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> SaveResponse:
+    # Quitar no exige poder verla: si el autor la ocultó, igual se puede quitar.
+    publication = await get_publication_by_id(
+        session=session, publication_id=publication_id
+    )
+    if publication is not None:
+        await set_saved(session, publication, current_user, saved=False)
+    return SaveResponse(saved=False)
 
 
 @router.post("/{publication_id}/like", response_model=LikeResponse)

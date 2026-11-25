@@ -93,9 +93,14 @@ class PublicationResponse(BaseModel):
     likes_count: int = 0
     comments_count: int = 0
     liked_by_me: bool = False
+    saved_by_me: bool = False
     is_mine: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SaveResponse(BaseModel):
+    saved: bool
 
 
 class LikeResponse(BaseModel):

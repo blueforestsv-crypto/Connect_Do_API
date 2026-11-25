@@ -9,6 +9,7 @@ from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.contact_request import ContactRequest
 from app.models.notification import Notification
+from app.models.profile import Profile
 from app.models.user import User
 from app.schemas.contact import (
     ContactRequestResponse,
@@ -96,19 +97,26 @@ async def search_users(
 
     stmt = (
         select(User)
-        .where(User.id != current_user.id)
+        .outerjoin(Profile, Profile.user_id == User.id)
+        .where(User.id != current_user.id, User.is_active.is_(True))
         .options(joinedload(User.profile))
+        .order_by(User.first_name, User.last_name)
         .limit(limit)
     )
 
     if clean_query:
         like_query = f"%{clean_query}%"
 
+        # Nombre, carrera o universidad. El correo solo si se escribe
+        # completo, para no permitir "adivinar" correos por partes.
         stmt = stmt.where(
             or_(
                 User.first_name.ilike(like_query),
                 User.last_name.ilike(like_query),
-                User.email.ilike(like_query),
+                (User.first_name + " " + User.last_name).ilike(like_query),
+                Profile.career.ilike(like_query),
+                Profile.university.ilike(like_query),
+                User.email == clean_query,
             )
         )
 
@@ -132,13 +140,22 @@ async def search_users(
             contact_status = existing_request.status
             request_id = existing_request.id
 
-        response.append(
-            _build_contact_user(
-                user=user,
-                contact_status=contact_status,
-                request_id=request_id,
-            )
+        item = _build_contact_user(
+            user=user,
+            contact_status=contact_status,
+            request_id=request_id,
         )
+
+        # Privacidad: el correo solo para contactos; un perfil privado
+        # tampoco muestra su descripción ni portafolio a desconocidos.
+        if contact_status != "accepted":
+            item.email = ""
+            if user.profile is not None and user.profile.is_private:
+                item.bio = None
+                item.portfolio_url = None
+                item.academic_cycle = None
+
+        response.append(item)
 
     return response
 

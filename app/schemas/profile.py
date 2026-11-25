@@ -104,6 +104,9 @@ class PublicProfileResponse(BaseModel):
     phone: str | None = None
 
     is_me: bool = False
+    # Perfil privado visto por alguien que no es contacto: datos mínimos.
+    is_private: bool = False
+    limited: bool = False
     # none | pending_sent | pending_received | accepted
     contact_status: str = "none"
     contact_request_id: uuid.UUID | None = None

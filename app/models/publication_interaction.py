@@ -87,3 +87,28 @@ class PublicationComment(Base):
     )
 
     author: Mapped["User"] = relationship("User")
+
+
+class PublicationSave(Base):
+    """Publicación guardada por un usuario para verla después."""
+
+    __tablename__ = "publication_saves"
+
+    publication_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("publications.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )

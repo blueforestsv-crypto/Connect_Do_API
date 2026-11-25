@@ -10,7 +10,11 @@ from sqlalchemy.orm import selectinload
 
 from app.models.notification import Notification
 from app.models.publication import Publication
-from app.models.publication_interaction import PublicationComment, PublicationLike
+from app.models.publication_interaction import (
+    PublicationComment,
+    PublicationLike,
+    PublicationSave,
+)
 from app.models.user import User
 from app.schemas.publication import CommentResponse, PublicationResponse
 
@@ -52,12 +56,21 @@ async def build_publication_responses(
     )
     liked_ids = set(liked_result.scalars().all())
 
+    saved_result = await session.execute(
+        select(PublicationSave.publication_id).where(
+            PublicationSave.publication_id.in_(ids),
+            PublicationSave.user_id == current_user_id,
+        )
+    )
+    saved_ids = set(saved_result.scalars().all())
+
     responses: list[PublicationResponse] = []
     for publication in publications:
         response = PublicationResponse.model_validate(publication)
         response.likes_count = likes_count.get(publication.id, 0)
         response.comments_count = comments_count.get(publication.id, 0)
         response.liked_by_me = publication.id in liked_ids
+        response.saved_by_me = publication.id in saved_ids
         response.is_mine = publication.author_id == current_user_id
         responses.append(response)
 
@@ -73,6 +86,31 @@ async def build_publication_response(
         session, [publication], current_user_id
     )
     return responses[0]
+
+
+# =====================================================
+# GUARDADAS
+# =====================================================
+async def set_saved(
+    session: AsyncSession,
+    publication: Publication,
+    user: User,
+    saved: bool,
+) -> None:
+    if saved:
+        await session.execute(
+            insert(PublicationSave)
+            .values(publication_id=publication.id, user_id=user.id)
+            .on_conflict_do_nothing()
+        )
+    else:
+        await session.execute(
+            delete(PublicationSave).where(
+                PublicationSave.publication_id == publication.id,
+                PublicationSave.user_id == user.id,
+            )
+        )
+    await session.commit()
 
 
 # =====================================================

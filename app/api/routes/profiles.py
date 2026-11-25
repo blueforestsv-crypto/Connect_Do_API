@@ -253,6 +253,21 @@ async def get_public_profile(
     )
     # Correo y teléfono: solo para ti mismo y tus contactos.
     show_private = is_me or contact_status == "accepted"
+    is_private = bool(profile and profile.is_private)
+
+    if is_private and not show_private:
+        return PublicProfileResponse(
+            user_id=user.id,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            profile_image_base64=profile.profile_image_base64 if profile else None,
+            avatar_url=profile.avatar_url if profile else None,
+            university=profile.university if profile else None,
+            is_private=True,
+            limited=True,
+            contact_status=contact_status,
+            contact_request_id=request_id,
+        )
 
     has_cv = (
         await session.execute(select(CvFile.user_id).where(CvFile.user_id == user.id))
@@ -275,6 +290,7 @@ async def get_public_profile(
         email=user.email if show_private else None,
         phone=(profile.phone if profile else None) if show_private else None,
         is_me=is_me,
+        is_private=is_private,
         contact_status=contact_status,
         contact_request_id=request_id,
     )

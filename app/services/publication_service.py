@@ -5,7 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.contact_request import ContactRequest
+from app.models.profile import Profile
 from app.models.publication import Publication
+from app.models.publication_interaction import PublicationSave
 from app.models.user import User
 from app.schemas.publication import PublicationCreate, PublicationUpdate
 
@@ -92,6 +94,18 @@ async def get_publication_by_id(
     return result.scalar_one_or_none()
 
 
+def _private_author_ids():
+    """Subconsulta: usuarios con perfil privado."""
+    return select(Profile.user_id).where(Profile.is_private.is_(True))
+
+
+async def is_private_profile(session: AsyncSession, user_id: uuid.UUID) -> bool:
+    result = await session.execute(
+        select(Profile.is_private).where(Profile.user_id == user_id)
+    )
+    return bool(result.scalar_one_or_none())
+
+
 async def can_user_view_publication(
     session: AsyncSession,
     publication: Publication,
@@ -103,13 +117,16 @@ async def can_user_view_publication(
     if publication.author_id == user_id:
         return True
 
-    if publication.visibility == "public":
-        return True
-
     if publication.visibility == "private":
         return False
 
-    if publication.visibility == "contacts":
+    # Un perfil privado comparte lo "público" solo con sus contactos.
+    if publication.visibility == "public" and not await is_private_profile(
+        session, publication.author_id
+    ):
+        return True
+
+    if publication.visibility in ("public", "contacts"):
         result = await session.execute(
             select(ContactRequest.id).where(
                 or_(
@@ -138,6 +155,9 @@ async def list_publications(
     publication_type: str | None = None,
     only_active: bool = True,
     only_mine: bool = False,
+    only_saved: bool = False,
+    author_id: uuid.UUID | None = None,
+    search: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> list[Publication]:
@@ -153,10 +173,13 @@ async def list_publications(
         .options(selectinload(Publication.author).selectinload(User.profile))
         .where(
             or_(
-                Publication.visibility == "public",
+                and_(
+                    Publication.visibility == "public",
+                    Publication.author_id.not_in(_private_author_ids()),
+                ),
                 Publication.author_id == current_user_id,
                 and_(
-                    Publication.visibility == "contacts",
+                    Publication.visibility.in_(("public", "contacts")),
                     Publication.author_id.in_(visible_author_ids),
                 ),
             )
@@ -175,6 +198,37 @@ async def list_publications(
     # Perfil del usuario: solo sus publicaciones (de cualquier visibilidad).
     if only_mine:
         query = query.where(Publication.author_id == current_user_id)
+
+    if author_id is not None:
+        query = query.where(Publication.author_id == author_id)
+
+    if only_saved:
+        query = query.where(
+            Publication.id.in_(
+                select(PublicationSave.publication_id).where(
+                    PublicationSave.user_id == current_user_id
+                )
+            )
+        )
+
+    clean_search = (search or "").strip()
+    if clean_search:
+        pattern = f"%{clean_search}%"
+        query = query.where(
+            or_(
+                Publication.title.ilike(pattern),
+                Publication.description.ilike(pattern),
+                Publication.location.ilike(pattern),
+                Publication.author_id.in_(
+                    select(User.id).where(
+                        or_(
+                            User.first_name.ilike(pattern),
+                            User.last_name.ilike(pattern),
+                        )
+                    )
+                ),
+            )
+        )
 
     result = await session.execute(query)
 
