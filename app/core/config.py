@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # Vacío = push deshabilitado; las notificaciones siguen en la app.
     firebase_service_account_json: str = ""
 
+    # Fotos, videos y audios (Cloudinary). Vacío = subir archivos deshabilitado.
+    cloudinary_cloud_name: str = ""
+    cloudinary_api_key: str = ""
+    cloudinary_api_secret: str = ""
+
     # Correo de soporte que aparece en la política de privacidad.
     support_email: str = ""
 

@@ -3,6 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import media_service
 from app.models.profile import Profile
 from app.schemas.profile import ProfileUpdate
 
@@ -51,6 +52,13 @@ async def update_profile(
 
     for field_name, value in update_data.items():
         setattr(profile, field_name, value)
+
+    # Foto subida a Cloudinary: se guarda el enlace también en
+    # profile_image_base64, que es lo que leen todas las pantallas (la app
+    # muestra igual un enlace o una imagen en base64).
+    avatar = update_data.get("avatar_url")
+    if avatar and media_service.is_own_url(avatar):
+        profile.profile_image_base64 = avatar
 
     try:
         await session.commit()

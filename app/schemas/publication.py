@@ -2,7 +2,9 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.services import media_service
 
 
 PublicationType = Literal[
@@ -33,11 +35,28 @@ PublicationMediaType = Literal[
 
 
 class PublicationMediaItem(BaseModel):
+    """Foto o video. Lo nuevo va en Cloudinary (`url`); `base64` queda solo
+    para las publicaciones antiguas."""
+
     type: PublicationMediaType
-    base64: str = Field(min_length=1)
+    url: str | None = Field(default=None, max_length=500)
+    thumbnail_url: str | None = Field(default=None, max_length=500)
+    base64: str | None = None
+    width: int | None = Field(default=None, ge=0)
+    height: int | None = Field(default=None, ge=0)
+    duration: float | None = Field(default=None, ge=0)
     file_name: str | None = Field(default=None, max_length=255)
     mime_type: str | None = Field(default=None, max_length=120)
     size_bytes: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def check_source(self) -> "PublicationMediaItem":
+        if not self.url and not self.base64:
+            raise ValueError("Cada archivo necesita url o base64.")
+        for link in (self.url, self.thumbnail_url):
+            if link and not media_service.is_own_url(link):
+                raise ValueError("Los archivos deben subirse con la app.")
+        return self
 
 
 class PublicationCreate(BaseModel):
@@ -48,7 +67,7 @@ class PublicationCreate(BaseModel):
     modality: PublicationModality | None = None
     visibility: PublicationVisibility = "contacts"
     image_url: str | None = Field(default=None, max_length=500)
-    media_items: list[PublicationMediaItem] = Field(default_factory=list)
+    media_items: list[PublicationMediaItem] = Field(default_factory=list, max_length=6)
 
 
 class PublicationUpdate(BaseModel):
@@ -67,10 +86,16 @@ class PublicationAuthorResponse(BaseModel):
     id: uuid.UUID
     first_name: str
     last_name: str
-    email: str
+    # Ya no se envía el correo del autor en el feed (privacidad).
+    email: str = ""
     profile_image_base64: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def hide_email(cls, value: object) -> str:
+        return ""
 
 
 class PublicationResponse(BaseModel):

@@ -7,6 +7,7 @@ from app.api.routes import (
     account_router,
     devices_router,
     legal_router,
+    media_router,
     auth_router,
     profiles_router,
     publications_router,
@@ -39,6 +40,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(account_router)
 app.include_router(devices_router)
+app.include_router(media_router)
 app.include_router(legal_router)
 app.include_router(profiles_router)
 app.include_router(publications_router)
