@@ -22,7 +22,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-MediaPurpose = Literal["post", "avatar", "chat", "story"]
+MediaPurpose = Literal["post", "avatar", "chat", "story", "sticker"]
 MediaKind = Literal["image", "video", "audio"]
 
 _FORMATS: dict[str, str] = {
@@ -47,6 +47,7 @@ _ALLOWED: dict[str, set[str]] = {
     "avatar": {"image"},
     "chat": {"image", "video", "audio"},
     "story": {"image", "video"},
+    "sticker": {"image"},
 }
 
 

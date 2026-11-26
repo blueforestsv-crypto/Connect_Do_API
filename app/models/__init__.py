@@ -5,6 +5,7 @@ from app.models.user import User
 from app.models.publication import Publication
 from app.models.cv_file import CvFile
 from app.models.device_token import DeviceToken
+from app.models.sticker import Sticker
 from app.models.story import Story, StoryView
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "DeviceToken",
     "Story",
     "StoryView",
+    "Sticker",
     "Application",
 ]

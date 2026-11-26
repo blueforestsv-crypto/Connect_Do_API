@@ -83,6 +83,7 @@ _ATTACHMENT_LABELS = {
     "image": "📷 Foto",
     "video": "🎥 Video",
     "audio": "🎤 Nota de voz",
+    "sticker": "💟 Sticker",
 }
 
 

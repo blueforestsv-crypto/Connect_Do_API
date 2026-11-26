@@ -2,6 +2,7 @@ from app.api.routes.account import router as account_router
 from app.api.routes.devices import router as devices_router
 from app.api.routes.legal import router as legal_router
 from app.api.routes.media import router as media_router
+from app.api.routes.stickers import router as stickers_router
 from app.api.routes.stories import router as stories_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.profiles import router as profiles_router
@@ -17,6 +18,7 @@ __all__ = [
     "legal_router",
     "media_router",
     "stories_router",
+    "stickers_router",
     "auth_router",
     "profiles_router",
     "publications_router",

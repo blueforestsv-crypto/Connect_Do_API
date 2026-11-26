@@ -21,7 +21,7 @@ class ChatUserResponse(BaseModel):
 
 
 class MessageAttachment(BaseModel):
-    type: Literal["image", "video", "audio"]
+    type: Literal["image", "video", "audio", "sticker"]
     url: str = Field(max_length=500)
     width: int | None = Field(default=None, ge=0)
     height: int | None = Field(default=None, ge=0)
