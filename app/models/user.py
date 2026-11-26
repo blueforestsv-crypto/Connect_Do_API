@@ -166,6 +166,10 @@ class User(Base):
     )
 
     @property
+    def has_password(self) -> bool:
+        return bool(self.hashed_password)
+
+    @property
     def profile_image_base64(self) -> str | None:
         profile = self.__dict__.get("profile")
 

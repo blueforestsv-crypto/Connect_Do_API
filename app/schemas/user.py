@@ -21,6 +21,7 @@ class UserResponse(BaseModel):
     is_active: bool
     is_verified: bool
     role: str = "user"
+    has_password: bool = True
     created_at: datetime
     updated_at: datetime
 
