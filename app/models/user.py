@@ -71,6 +71,21 @@ class User(Base):
         nullable=False,
     )
 
+    # "user" o "admin" (los admin revisan los reportes). Se asigna a mano en
+    # la base: UPDATE users SET role = 'admin' WHERE email = '...';
+    role: Mapped[str] = mapped_column(
+        String(20),
+        default="user",
+        server_default="user",
+        nullable=False,
+    )
+
+    # Aceptó términos y confirmó la edad mínima al registrarse.
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

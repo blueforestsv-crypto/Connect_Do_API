@@ -6,6 +6,8 @@ from sqlalchemy import and_, case, func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.rate_limit import rate_limit
+from app.services.safety_service import blocked_ids, is_blocked
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.contact_request import ContactRequest
@@ -159,6 +161,9 @@ async def _can_chat(
     user_a_id: uuid.UUID,
     user_b_id: uuid.UUID,
 ) -> bool:
+    if await is_blocked(session, user_a_id, user_b_id):
+        return False
+
     are_contacts = await _are_contacts(
         session=session,
         user_a_id=user_a_id,
@@ -297,7 +302,12 @@ async def get_conversations(
         if conversation is not None:
             conversation.unread_count = unread_count
 
-    conversations = list(conversations_by_contact_id.values())
+    blocked = await blocked_ids(session, current_user.id)
+    conversations = [
+        item
+        for contact_id, item in conversations_by_contact_id.items()
+        if contact_id not in blocked
+    ]
 
     # Las conversaciones sin mensajes van al final. Antes, mezclar None con
     # fechas en la clave de orden lanzaba TypeError (error 500).
@@ -404,6 +414,7 @@ async def get_messages_with_contact(
     response_model=MessageResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Enviar mensaje a un contacto",
+    dependencies=[Depends(rate_limit("message", 60, 60))],
 )
 async def send_message_to_contact(
     contact_id: uuid.UUID,

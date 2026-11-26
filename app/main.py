@@ -15,6 +15,7 @@ from app.api.routes import (
     media_router,
     stories_router,
     stickers_router,
+    safety_router,
     auth_router,
     profiles_router,
     publications_router,
@@ -92,6 +93,7 @@ app.include_router(devices_router)
 app.include_router(media_router)
 app.include_router(stories_router)
 app.include_router(stickers_router)
+app.include_router(safety_router)
 app.include_router(legal_router)
 app.include_router(profiles_router)
 app.include_router(publications_router)

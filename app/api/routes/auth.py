@@ -1,8 +1,10 @@
+from datetime import UTC, datetime
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rate_limit import rate_limit
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.user import User
@@ -65,6 +67,7 @@ router = APIRouter(
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Registrar un nuevo usuario",
+    dependencies=[Depends(rate_limit("register", 5, 600))],
 )
 async def register_user(
     user_data: UserCreate,
@@ -96,6 +99,7 @@ async def register_user(
     "/login",
     response_model=TokenResponse,
     summary="Iniciar sesión",
+    dependencies=[Depends(rate_limit("login", 10, 60))],
 )
 async def login_user(
     login_data: LoginRequest,
@@ -136,6 +140,7 @@ async def login_user(
     "/google",
     response_model=GoogleAuthResponse,
     summary="Iniciar sesión o registrarse con Google",
+    dependencies=[Depends(rate_limit("google", 20, 60))],
 )
 async def google_auth(
     request_data: GoogleAuthRequest,
@@ -159,6 +164,10 @@ async def google_auth(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="La cuenta está desactivada.",
         )
+
+    if request_data.accept_terms and user.terms_accepted_at is None:
+        user.terms_accepted_at = datetime.now(UTC)
+        await session.commit()
 
     access_token = create_access_token(
         subject=str(user.id),
@@ -289,6 +298,7 @@ async def get_authenticated_user(
     "/email-verification/request",
     response_model=EmailVerificationResponse,
     summary="Solicitar verificación de correo",
+    dependencies=[Depends(rate_limit("verify_mail", 5, 600))],
 )
 async def request_email_verification(
     request_data: EmailVerificationRequest,

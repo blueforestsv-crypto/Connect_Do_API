@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from app.core.rate_limit import rate_limit
 from app.api.dependencies import get_current_user
 from app.models.user import User
 from app.services import media_service
@@ -38,6 +39,7 @@ async def media_status() -> MediaStatus:
     "/sign",
     response_model=MediaSignResponse,
     summary="Permiso firmado para subir un archivo a Cloudinary",
+    dependencies=[Depends(rate_limit("upload", 60, 600))],
 )
 async def sign_media_upload(
     data: MediaSignRequest,

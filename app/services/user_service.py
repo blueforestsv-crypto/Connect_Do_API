@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +42,7 @@ async def create_user(
         hashed_password=hash_password(user_data.password),
         first_name=user_data.first_name.strip(),
         last_name=user_data.last_name.strip(),
+        terms_accepted_at=datetime.now(UTC) if user_data.accept_terms else None,
     )
 
     profile = Profile(

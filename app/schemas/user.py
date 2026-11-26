@@ -9,6 +9,8 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     first_name: str = Field(min_length=2, max_length=100)
     last_name: str = Field(min_length=2, max_length=100)
+    # Aceptó términos y privacidad y tiene la edad mínima (16).
+    accept_terms: bool = False
 
 
 class UserResponse(BaseModel):
@@ -18,6 +20,7 @@ class UserResponse(BaseModel):
     last_name: str
     is_active: bool
     is_verified: bool
+    role: str = "user"
     created_at: datetime
     updated_at: datetime
 

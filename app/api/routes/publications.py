@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.rate_limit import rate_limit
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.notification import Notification
@@ -66,6 +67,7 @@ def _get_publication_notification_type(
     "",
     response_model=PublicationResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("publication", 10, 600))],
 )
 async def create_publication_endpoint(
     publication_data: PublicationCreate,
@@ -348,6 +350,7 @@ async def list_comments_endpoint(
     "/{publication_id}/comments",
     response_model=CommentResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit("comment", 30, 60))],
 )
 async def create_comment_endpoint(
     publication_id: uuid.UUID,

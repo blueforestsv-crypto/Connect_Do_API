@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     cloudinary_api_key: str = ""
     cloudinary_api_secret: str = ""
 
+    # Límites anti-spam (se apagan en las pruebas).
+    rate_limit_enabled: bool = True
+
     # Correo de soporte que aparece en la política de privacidad.
     support_email: str = ""
 

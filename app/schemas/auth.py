@@ -22,6 +22,7 @@ class TokenResponse(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     id_token: str = Field(min_length=20, max_length=4096)
+    accept_terms: bool = False
 
 
 class GoogleAuthResponse(TokenResponse):

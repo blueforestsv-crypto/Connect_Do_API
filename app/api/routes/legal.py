@@ -53,7 +53,8 @@ def _page(title: str, body: str) -> HTMLResponse:
 <body><main>
 <nav><span class="brand">Connect Do</span>
 <a href="/">Inicio</a><a href="/privacidad">Privacidad</a>
-<a href="/terminos">Términos</a></nav>
+<a href="/terminos">Términos</a>
+<a href="/eliminar-cuenta">Eliminar cuenta</a></nav>
 <div class="card">{body}</div>
 </main></body></html>"""
     )
@@ -148,5 +149,34 @@ reglas.</li>
 interrupciones.</li>
 </ul>
 <p>Para dudas, contáctanos {_contact()}.</p>
+""",
+    )
+
+
+@router.get("/eliminar-cuenta", response_class=HTMLResponse)
+async def delete_account_page() -> HTMLResponse:
+    return _page(
+        "Eliminar cuenta",
+        f"""
+<h1>Eliminar tu cuenta</h1>
+<p class="muted">Connect Do</p>
+
+<h2>Desde la app (inmediato)</h2>
+<ol>
+<li>Abre Connect Do e inicia sesión.</li>
+<li>Ve a <b>Perfil → Configuración → Eliminar mi cuenta</b>.</li>
+<li>Confirma con tu contraseña (o escribiendo ELIMINAR si entras con
+Google).</li>
+</ol>
+
+<h2>Qué se borra</h2>
+<p>Se eliminan de forma permanente tu cuenta, perfil, CV, publicaciones,
+comentarios, mensajes, historias, stickers, contactos, postulaciones y
+notificaciones, junto con las fotos, videos y audios que subiste. No se
+puede deshacer.</p>
+
+<h2>Si ya no tienes acceso a la app</h2>
+<p>Pide la eliminación {_contact()} desde el correo de tu cuenta. La
+haremos en un máximo de 30 días.</p>
 """,
     )

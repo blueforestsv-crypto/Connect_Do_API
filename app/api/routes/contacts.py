@@ -5,6 +5,8 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.rate_limit import rate_limit
+from app.services.safety_service import blocked_ids_query, is_blocked
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.contact_request import ContactRequest
@@ -98,7 +100,11 @@ async def search_users(
     stmt = (
         select(User)
         .outerjoin(Profile, Profile.user_id == User.id)
-        .where(User.id != current_user.id, User.is_active.is_(True))
+        .where(
+            User.id != current_user.id,
+            User.is_active.is_(True),
+            User.id.not_in(blocked_ids_query(current_user.id)),
+        )
         .options(joinedload(User.profile))
         .order_by(User.first_name, User.last_name)
         .limit(limit)
@@ -165,6 +171,7 @@ async def search_users(
     response_model=ContactRequestResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Enviar solicitud de contacto",
+    dependencies=[Depends(rate_limit("contact_request", 30, 3600))],
 )
 async def send_contact_request(
     receiver_id: uuid.UUID,
@@ -182,7 +189,7 @@ async def send_contact_request(
     )
     receiver = receiver_result.scalar_one_or_none()
 
-    if receiver is None:
+    if receiver is None or await is_blocked(session, current_user.id, receiver_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuario receptor no encontrado.",

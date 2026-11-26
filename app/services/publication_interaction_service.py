@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.safety_service import blocked_ids_query
 from app.models.notification import Notification
 from app.models.publication import Publication
 from app.models.publication_interaction import (
@@ -189,7 +190,10 @@ async def list_comments(
     result = await session.execute(
         select(PublicationComment)
         .options(selectinload(PublicationComment.author).selectinload(User.profile))
-        .where(PublicationComment.publication_id == publication.id)
+        .where(
+            PublicationComment.publication_id == publication.id,
+            PublicationComment.author_id.not_in(blocked_ids_query(current_user_id)),
+        )
         .order_by(PublicationComment.created_at.asc(), PublicationComment.id.asc())
         .limit(limit)
         .offset(offset)

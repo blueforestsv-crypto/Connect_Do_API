@@ -3,6 +3,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.rate_limit import rate_limit
 from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.db.session import get_db_session
@@ -54,6 +55,7 @@ async def _commit(session: AsyncSession) -> None:
     "/password-reset/request",
     response_model=EmailVerificationResponse,
     summary="Enviar código para restablecer la contraseña",
+    dependencies=[Depends(rate_limit("reset_mail", 5, 600))],
 )
 async def request_password_reset(
     data: PasswordResetRequest,
@@ -85,6 +87,7 @@ async def request_password_reset(
     "/password-reset/confirm",
     response_model=MessageResponse,
     summary="Restablecer la contraseña con el código recibido",
+    dependencies=[Depends(rate_limit("reset_confirm", 10, 600))],
 )
 async def confirm_password_reset(
     data: PasswordResetConfirm,
@@ -151,6 +154,7 @@ async def change_password(
     "/email-change/request",
     response_model=EmailVerificationResponse,
     summary="Enviar código al correo nuevo",
+    dependencies=[Depends(rate_limit("email_change", 5, 600))],
 )
 async def request_email_change(
     data: EmailChangeRequest,

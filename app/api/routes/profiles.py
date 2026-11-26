@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.safety_service import is_blocked
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.cv_file import CvFile
@@ -243,6 +244,8 @@ async def get_public_profile(
     session: AsyncSession = Depends(get_db_session),
 ) -> PublicProfileResponse:
     user = await _get_user_with_profile(session, user_id)
+    if await is_blocked(session, current_user.id, user.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado.")
     profile = user.profile
     is_me = user.id == current_user.id
 
@@ -306,7 +309,9 @@ async def create_cv_link(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> CvLinkResponse:
-    if not await can_view_cv(session, current_user.id, user_id):
+    if await is_blocked(session, current_user.id, user_id) or not await can_view_cv(
+        session, current_user.id, user_id
+    ):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "Solo sus contactos y las empresas a las que se postuló pueden ver "

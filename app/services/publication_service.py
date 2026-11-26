@@ -4,6 +4,7 @@ from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.safety_service import blocked_ids_query, is_blocked
 from app.models.contact_request import ContactRequest
 from app.models.profile import Profile
 from app.models.publication import Publication
@@ -117,6 +118,9 @@ async def can_user_view_publication(
     if publication.author_id == user_id:
         return True
 
+    if await is_blocked(session, user_id, publication.author_id):
+        return False
+
     if publication.visibility == "private":
         return False
 
@@ -191,6 +195,12 @@ async def list_publications(
 
     if only_active:
         query = query.where(Publication.is_active.is_(True))
+
+    # Ni bloqueados (en ambos sentidos) ni cuentas suspendidas.
+    query = query.where(
+        Publication.author_id.not_in(blocked_ids_query(current_user_id)),
+        Publication.author_id.not_in(select(User.id).where(User.is_active.is_(False))),
+    )
 
     if publication_type is not None:
         query = query.where(Publication.type == publication_type)
