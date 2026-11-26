@@ -122,7 +122,15 @@ async def get_or_create_google_user(
                 google_sub=identity.sub,
             )
             session.add(user)
-            session.add(Profile(user=user, avatar_url=identity.picture))
+            # La foto de Google va también en profile_image_base64, que es
+            # el campo que leen todas las pantallas (acepta enlaces).
+            session.add(
+                Profile(
+                    user=user,
+                    avatar_url=identity.picture,
+                    profile_image_base64=identity.picture,
+                )
+            )
             created = True
 
     # Google verificó el correo.

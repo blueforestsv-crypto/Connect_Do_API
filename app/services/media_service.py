@@ -172,10 +172,37 @@ async def upload_base64_image(data: str, folder: str) -> str | None:
     return response.json().get("secure_url")
 
 
+async def fill_missing_photos_from_google() -> int:
+    """Cuentas creadas con Google: su foto quedó solo en avatar_url y las
+    pantallas leen profile_image_base64. Se copia el enlace (unos bytes)."""
+    from sqlalchemy import or_, update
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.profile import Profile
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            update(Profile)
+            .where(
+                or_(
+                    Profile.profile_image_base64.is_(None),
+                    Profile.profile_image_base64 == "",
+                ),
+                Profile.avatar_url.startswith("https://"),
+            )
+            .values(profile_image_base64=Profile.avatar_url)
+        )
+        await session.commit()
+    if result.rowcount:
+        logger.info("Fotos de Google copiadas al perfil: %s", result.rowcount)
+    return result.rowcount or 0
+
+
 async def migrate_legacy_avatars(limit: int = 200) -> int:
     """Pasa a Cloudinary las fotos de perfil que siguen en base64, para que
     no viajen completas en cada respuesta. Se ejecuta al arrancar; es seguro
     repetirlo (solo toca las que aún no son enlaces)."""
+    await fill_missing_photos_from_google()
     if not is_enabled():
         return 0
 

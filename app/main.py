@@ -32,10 +32,12 @@ _startup_tasks: set[asyncio.Task] = set()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # En segundo plano: pasa a Cloudinary las fotos de perfil antiguas.
-    task = asyncio.create_task(_migrate_avatars_safely())
-    _startup_tasks.add(task)
-    task.add_done_callback(_startup_tasks.discard)
+    # En segundo plano (solo en producción, nunca en pruebas): arregla fotos
+    # de perfil (Google sin copiar, base64 antiguas a Cloudinary).
+    if settings.app_env == "production":
+        task = asyncio.create_task(_migrate_avatars_safely())
+        _startup_tasks.add(task)
+        task.add_done_callback(_startup_tasks.discard)
     yield
 
 
