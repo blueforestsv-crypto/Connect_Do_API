@@ -31,7 +31,11 @@ async def get_my_notifications(
     stmt = (
         select(Notification)
         .options(selectinload(Notification.related_user).selectinload(User.profile))
-        .where(Notification.user_id == current_user.id)
+        .where(
+            Notification.user_id == current_user.id,
+            # Los mensajes del chat no van aquí (tienen su contador en Chats).
+            Notification.type != "message",
+        )
         .order_by(Notification.created_at.desc())
         .limit(limit)
         .offset(offset)
@@ -50,6 +54,7 @@ async def get_my_unread_notifications_count(
     stmt = select(func.count(Notification.id)).where(
         Notification.user_id == current_user.id,
         Notification.is_read.is_(False),
+        Notification.type != "message",
     )
 
     result = await db.execute(stmt)

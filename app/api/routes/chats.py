@@ -10,9 +10,9 @@ from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.contact_request import ContactRequest
 from app.models.message import Message
-from app.models.notification import Notification
 from app.models.profile import Profile
 from app.models.user import User
+from app.services import push_service
 from app.schemas.chat import (
     MessageAttachmentResponse,
     ChatUserResponse,
@@ -446,18 +446,37 @@ async def send_message_to_contact(
     await session.flush()
 
     sender_name = _get_full_name(current_user)
+    sender_photo = (
+        await session.execute(
+            select(Profile.profile_image_base64).where(
+                Profile.user_id == current_user.id
+            )
+        )
+    ).scalar_one_or_none() or ""
 
-    notification = Notification(
-        user_id=contact.id,
-        type="message",
-        title=sender_name,
-        message=message_preview(clean_content, attachment.type if attachment else None),
-        related_user_id=current_user.id,
-        related_message_id=message.id,
-        is_read=False,
+    # Los mensajes NO se guardan en Notificaciones (ya tienen su contador en
+    # Chats): solo se manda el push, uno por conversación en la bandeja.
+    push_service.queue_push(
+        session,
+        push_service.PushMessage(
+            user_id=contact.id,
+            title=sender_name,
+            body=message_preview(
+                clean_content, attachment.type if attachment else None
+            ),
+            data={
+                "type": "message",
+                "tag": f"message:{current_user.id}",
+                "related_user_id": str(current_user.id),
+                "related_message_id": str(message.id),
+                "sender_name": sender_name,
+                # Solo enlaces (Cloudinary/Google); nunca base64 en un push.
+                "sender_photo": (
+                    sender_photo if sender_photo.startswith("https://") else ""
+                ),
+            },
+        ),
     )
-
-    session.add(notification)
 
     await session.commit()
 

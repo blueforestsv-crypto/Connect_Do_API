@@ -43,9 +43,25 @@ async def lifespan(_: FastAPI):
 
 async def _migrate_avatars_safely() -> None:
     try:
+        await _delete_message_notifications()
         await media_service.migrate_legacy_avatars()
     except Exception:  # noqa: BLE001 - nunca debe tumbar el servidor
-        logging.getLogger(__name__).exception("Falló la migración de fotos")
+        logging.getLogger(__name__).exception("Falló el mantenimiento inicial")
+
+
+async def _delete_message_notifications() -> None:
+    """Los mensajes del chat ya no se guardan en Notificaciones; se borran
+    los que se acumularon antes."""
+    from sqlalchemy import delete
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.notification import Notification
+
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            delete(Notification).where(Notification.type == "message")
+        )
+        await session.commit()
 
 
 app = FastAPI(

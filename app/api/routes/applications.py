@@ -365,8 +365,8 @@ async def contact_application_student_endpoint(
 
     notification = Notification(
         user_id=application.student_id,
-        type="message",
-        title="Nuevo mensaje",
+        type="application_contact",
+        title="Mensaje sobre tu postulación",
         message=f"{sender_name} te envió un mensaje sobre tu postulación.",
         related_user_id=current_user.id,
         related_message_id=message.id,

@@ -115,7 +115,9 @@ def build_fcm_message(token: str, push: PushMessage) -> dict[str, Any]:
                 "priority": "high",
                 "notification": {
                     "channel_id": ANDROID_CHANNEL_ID,
-                    "tag": push.data.get("type", "general"),
+                    # Mismo tag = reemplaza a la anterior en la bandeja (p. ej.
+                    # un solo aviso por conversación).
+                    "tag": push.data.get("tag") or push.data.get("type", "general"),
                 },
             },
         }
@@ -223,6 +225,14 @@ def push_from_notification(notification: Any) -> PushMessage:
         body=notification.message or "",
         data=data,
     )
+
+
+def queue_push(session: Any, push: PushMessage) -> None:
+    """Envía un push después del commit SIN guardar una notificación (para
+    los mensajes del chat, que tienen su propio contador)."""
+    if not is_enabled():
+        return
+    session.info.setdefault(_PENDING_KEY, []).append(push)
 
 
 @event.listens_for(Session, "after_flush")

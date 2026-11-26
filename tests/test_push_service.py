@@ -113,3 +113,24 @@ async def test_token_de_google_firmado_y_reutilizado(fake_firebase):
 
     assert first == second == "ya29.x"
     assert len(calls) == 1  # el segundo se reutiliza
+
+
+def test_push_directo_sin_guardar_notificacion(fake_firebase):
+    """Los mensajes del chat solo encolan un push (no hay fila en la base)."""
+
+    class FakeSession:
+        info: dict = {}
+
+    session = FakeSession()
+    push = push_service.PushMessage(
+        user_id=uuid.uuid4(),
+        title="Ana",
+        body="🎤 Nota de voz",
+        data={"type": "message", "tag": "message:ana"},
+    )
+    push_service.queue_push(session, push)
+
+    assert session.info[push_service._PENDING_KEY] == [push]
+    message = push_service.build_fcm_message("t", push)["message"]
+    # Un aviso por conversación en la bandeja del teléfono.
+    assert message["android"]["notification"]["tag"] == "message:ana"
