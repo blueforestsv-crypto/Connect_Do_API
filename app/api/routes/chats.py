@@ -92,6 +92,8 @@ _ATTACHMENT_LABELS = {
 def message_preview(content: str, attachment_type: str | None) -> str:
     """Texto corto para la notificación (y el push) de un mensaje."""
     text = content.strip()
+    if text.startswith("[pub:"):
+        return "\U0001f4f0 Publicación compartida"
     if attachment_type:
         label = _ATTACHMENT_LABELS.get(attachment_type, "📎 Archivo")
         return f"{label} · {text}" if text else label

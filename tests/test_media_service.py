@@ -167,3 +167,10 @@ def test_notas_de_voz_de_android_se_aceptan(cloudinary):
         "allowed_formats"
     ].split(",")
     assert {"mp4", "m4a", "aac"} <= set(formats)
+
+
+def test_vista_previa_de_publicacion_compartida():
+    from app.api.routes.chats import message_preview
+
+    preview = message_preview("[pub:00000000-0000-0000-0000-000000000000] Hola", None)
+    assert preview.endswith("Publicación compartida")
