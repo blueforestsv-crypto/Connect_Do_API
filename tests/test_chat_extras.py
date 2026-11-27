@@ -148,3 +148,54 @@ async def test_ubicacion_en_grupo(client):
         json={"lat": 13.71, "lng": -89.21},
     )
     assert updated.json()["lat"] == 13.71
+
+
+async def test_archivos_enlaces_y_documentos(client):
+    ana, ana_id, luis, luis_id = await _contacts(client)
+    photo = (
+        "https://res.cloudinary.com/connectdo/image/upload/v1/connect_do/chat/u/a.jpg"
+    )
+
+    async def send(headers, to, body):
+        r = await client.post(f"/chats/{to}/messages", headers=headers, json=body)
+        assert r.status_code in (200, 201), r.text
+        return r.json()["id"]
+
+    await send(ana, luis_id, {"content": "Hola"})
+    await send(ana, luis_id, {"attachment": {"type": "image", "url": photo}})
+    await send(
+        luis, ana_id, {"attachment": {"type": "file", "url": DOC, "name": "t.pdf"}}
+    )
+    await send(luis, ana_id, {"content": "Mira https://ues.edu.sv/becas"})
+    await send(
+        ana, luis_id, {"content": "[pub:00000000-0000-0000-0000-000000000000] x"}
+    )
+    gone = await send(ana, luis_id, {"content": "borrado https://x.com"})
+    await client.delete(f"/chats/messages/{gone}", headers=ana)
+
+    async def shared(kind):
+        r = await client.get(f"/chats/{luis_id}/media?kind={kind}", headers=ana)
+        return r.json()
+
+    media = await shared("media")
+    assert [m["attachment"]["type"] for m in media] == ["image"]
+    files = await shared("files")
+    assert [m["attachment"]["name"] for m in files] == ["t.pdf"]
+    links = await shared("links")
+    # Ni la publicación compartida ni el mensaje eliminado.
+    assert [m["content"] for m in links] == ["Mira https://ues.edu.sv/becas"]
+
+    group = (
+        await client.post(
+            "/groups", headers=ana, json={"name": "G", "member_ids": [luis_id]}
+        )
+    ).json()
+    await client.post(
+        f"/groups/{group['id']}/messages",
+        headers=luis,
+        json={"attachment": {"type": "file", "url": DOC, "name": "g.pdf"}},
+    )
+    in_group = (
+        await client.get(f"/groups/{group['id']}/media?kind=files", headers=ana)
+    ).json()
+    assert [m["attachment"]["name"] for m in in_group] == ["g.pdf"]

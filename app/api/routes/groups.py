@@ -9,6 +9,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.routes.chats import SharedKind, shared_filter
 from app.schemas.chat import LocationUpdate
 from app.api.routes.chats import apply_live_location
 from app.api.dependencies import get_current_user
@@ -710,3 +711,28 @@ async def stop_group_live_location(
     await session.commit()
     await _broadcast_location(session, message, attachment)
     return attachment
+
+
+@router.get("/{group_id}/media", response_model=list[GroupMessageOut])
+async def group_shared(
+    group_id: uuid.UUID,
+    kind: SharedKind = "media",
+    limit: int = Query(default=60, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[GroupMessageOut]:
+    member = await _membership(session, group_id, current_user.id)
+    rows = await session.execute(
+        select(GroupMessage)
+        .options(selectinload(GroupMessage.sender))
+        .where(
+            GroupMessage.group_id == group_id,
+            GroupMessage.created_at >= member.joined_at,
+            shared_filter(GroupMessage, kind),
+        )
+        .order_by(GroupMessage.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [_message_out(m) for m in rows.scalars().all()]

@@ -1,3 +1,4 @@
+from typing import Literal
 import uuid
 from datetime import UTC, datetime
 
@@ -752,3 +753,68 @@ async def stop_live_location(
         {"type": "location", "message_id": str(message.id), "attachment": attachment},
     )
     return attachment
+
+
+SharedKind = Literal["media", "files", "links"]
+
+
+def shared_filter(model, kind: str):
+    """Condición para "Archivos, enlaces y documentos" (1 a 1 y grupos)."""
+    alive = model.deleted_at.is_(None)
+    if kind == "media":
+        return and_(alive, model.attachment_type.in_(["image", "video"]))
+    if kind == "files":
+        return and_(alive, model.attachment_type == "file")
+    # Enlaces: mensajes con http(s) (sin las publicaciones compartidas).
+    return and_(
+        alive,
+        or_(model.content.ilike("%http://%"), model.content.ilike("%https://%")),
+        ~model.content.like("[pub:%"),
+    )
+
+
+@router.get(
+    "/{contact_id}/media",
+    response_model=list[MessageResponse],
+    summary="Fotos, videos, documentos o enlaces de la conversación",
+)
+async def shared_in_conversation(
+    contact_id: uuid.UUID,
+    kind: SharedKind = "media",
+    limit: int = Query(default=60, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[MessageResponse]:
+    contact = await _get_contact_or_404(session=session, contact_id=contact_id)
+    if not await _can_chat(
+        session=session, user_a_id=current_user.id, user_b_id=contact.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo puedes ver mensajes con tus contactos o conversaciones iniciadas.",
+        )
+    result = await session.execute(
+        select(Message)
+        .where(
+            or_(
+                and_(
+                    Message.sender_id == current_user.id,
+                    Message.receiver_id == contact.id,
+                ),
+                and_(
+                    Message.sender_id == contact.id,
+                    Message.receiver_id == current_user.id,
+                ),
+            ),
+            shared_filter(Message, kind),
+        )
+        .options(
+            _profile_loader(Message.sender, False),
+            _profile_loader(Message.receiver, False),
+        )
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [_build_message(m, False) for m in result.scalars().unique().all()]
