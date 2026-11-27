@@ -114,6 +114,10 @@ class PublicProfileResponse(BaseModel):
     company_name: str | None = None
     company_sector: str | None = None
     company_size: str | None = None
+    followers_count: int = 0
+    following_count: int = 0
+    is_following: bool = False
+    follows_me: bool = False
     # Experiencia, formación, certificaciones… (ver /profiles/me/entries).
     entries: list[dict[str, Any]] = []
     # Habilidades con cuántos contactos las validaron.

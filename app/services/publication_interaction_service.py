@@ -8,9 +8,11 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.social_service import notify_mentions, resolve_mentions
 from app.services.safety_service import blocked_ids_query
 from app.models.notification import Notification
 from app.models.publication import Publication
+from app.models.social import CommentLike
 from app.models.publication_interaction import (
     PublicationComment,
     PublicationLike,
@@ -199,10 +201,88 @@ async def list_comments(
         .offset(offset)
     )
 
-    return [
+    comments = list(result.scalars().all())
+    responses = [
         _comment_response(comment, current_user_id, publication.author_id)
-        for comment in result.scalars().all()
+        for comment in comments
     ]
+    await _fill_comment_likes(session, responses, current_user_id)
+    return responses
+
+
+async def _fill_comment_likes(
+    session: AsyncSession,
+    responses: list[CommentResponse],
+    current_user_id: uuid.UUID,
+) -> None:
+    ids = [r.id for r in responses]
+    if not ids:
+        return
+    counts = dict(
+        (
+            await session.execute(
+                select(CommentLike.comment_id, func.count())
+                .where(CommentLike.comment_id.in_(ids))
+                .group_by(CommentLike.comment_id)
+            )
+        ).all()
+    )
+    mine = set(
+        (
+            await session.execute(
+                select(CommentLike.comment_id).where(
+                    CommentLike.comment_id.in_(ids),
+                    CommentLike.user_id == current_user_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for response in responses:
+        response.likes_count = counts.get(response.id, 0)
+        response.liked_by_me = response.id in mine
+
+
+async def set_comment_liked(
+    session: AsyncSession,
+    comment: PublicationComment,
+    user: User,
+    liked: bool,
+) -> int:
+    if liked:
+        result = await session.execute(
+            insert(CommentLike)
+            .values(comment_id=comment.id, user_id=user.id)
+            .on_conflict_do_nothing()
+        )
+        if result.rowcount and comment.author_id != user.id:
+            session.add(
+                Notification(
+                    user_id=comment.author_id,
+                    type="comment_like",
+                    title="Le gustó tu comentario",
+                    message=f"A {_full_name(user)} le gustó tu comentario.",
+                    related_user_id=user.id,
+                    related_publication_id=comment.publication_id,
+                    is_read=False,
+                )
+            )
+    else:
+        await session.execute(
+            delete(CommentLike).where(
+                CommentLike.comment_id == comment.id,
+                CommentLike.user_id == user.id,
+            )
+        )
+    await session.commit()
+    return (
+        await session.execute(
+            select(func.count())
+            .select_from(CommentLike)
+            .where(CommentLike.comment_id == comment.id)
+        )
+    ).scalar_one()
 
 
 async def get_comment(
@@ -226,13 +306,41 @@ async def create_comment(
     publication: Publication,
     user: User,
     text: str,
+    parent_id: uuid.UUID | None = None,
+    mention_ids: list[uuid.UUID] | None = None,
 ) -> CommentResponse:
+    parent = None
+    if parent_id is not None:
+        parent = await session.get(PublicationComment, parent_id)
+        if parent is None or parent.publication_id != publication.id:
+            parent = None
+        elif parent.parent_id is not None:
+            # Un solo nivel: responder a una respuesta cuelga del original.
+            parent = await session.get(PublicationComment, parent.parent_id)
+
+    mentions = await resolve_mentions(session, mention_ids or [], user)
     comment = PublicationComment(
         publication_id=publication.id,
         author_id=user.id,
         text=text,
+        parent_id=parent.id if parent else None,
+        mentions=mentions or None,
     )
     session.add(comment)
+    notify_mentions(session, mentions, user, publication.id, "un comentario")
+
+    if parent is not None and parent.author_id != user.id:
+        session.add(
+            Notification(
+                user_id=parent.author_id,
+                type="comment_reply",
+                title="Respondieron tu comentario",
+                message=f"{_full_name(user)} respondió: {_preview(text)}",
+                related_user_id=user.id,
+                related_publication_id=publication.id,
+                is_read=False,
+            )
+        )
 
     if publication.author_id != user.id:
         session.add(

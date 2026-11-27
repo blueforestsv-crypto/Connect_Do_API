@@ -68,6 +68,7 @@ class PublicationCreate(BaseModel):
     visibility: PublicationVisibility = "contacts"
     image_url: str | None = Field(default=None, max_length=500)
     media_items: list[PublicationMediaItem] = Field(default_factory=list, max_length=6)
+    mentions: list[uuid.UUID] = Field(default_factory=list, max_length=10)
 
 
 class PublicationUpdate(BaseModel):
@@ -122,6 +123,7 @@ class PublicationResponse(BaseModel):
     liked_by_me: bool = False
     saved_by_me: bool = False
     is_mine: bool = False
+    mentions: list[dict] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -137,6 +139,10 @@ class LikeResponse(BaseModel):
 
 class CommentCreate(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
+    # Responder a otro comentario.
+    parent_id: uuid.UUID | None = None
+    # Personas mencionadas con @.
+    mentions: list[uuid.UUID] = Field(default_factory=list, max_length=10)
 
     @field_validator("text")
     @classmethod
@@ -163,6 +169,10 @@ class CommentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     author: CommentAuthorResponse
+    parent_id: uuid.UUID | None = None
+    mentions: list[dict] | None = None
+    likes_count: int = 0
+    liked_by_me: bool = False
     is_mine: bool = False
     # El autor de la publicación también puede borrar comentarios en ella.
     can_delete: bool = False

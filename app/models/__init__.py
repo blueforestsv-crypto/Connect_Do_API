@@ -12,6 +12,7 @@ from app.models.professional import (
     SkillEndorsement,
 )
 from app.models.safety import Report, UserBlock
+from app.models.social import CommentLike, Follow, Highlight, HighlightItem
 from app.models.sticker import Sticker
 from app.models.story import Story, StoryView
 
@@ -28,6 +29,10 @@ __all__ = [
     "Sticker",
     "Report",
     "UserBlock",
+    "CommentLike",
+    "Follow",
+    "Highlight",
+    "HighlightItem",
     "JobAlert",
     "ProfileEntry",
     "ProfileView",

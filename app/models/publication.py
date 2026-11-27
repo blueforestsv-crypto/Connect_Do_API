@@ -97,6 +97,9 @@ class Publication(Base):
         default=list,
     )
 
+    # Personas mencionadas con @: [{"id": "...", "name": "Ana López"}].
+    mentions: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
+
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

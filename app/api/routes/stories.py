@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.social import HighlightItem
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
 from app.models.story import Story, StoryView
@@ -117,8 +118,20 @@ async def _delete_expired(session: AsyncSession) -> None:
     await session.execute(delete(Story).where(Story.id.in_([r[0] for r in rows])))
     await session.commit()
 
+    # Las que están en destacadas conservan su archivo.
+    kept = set(
+        (
+            await session.execute(
+                select(HighlightItem.media_url).where(
+                    HighlightItem.media_url.in_([r[1] for r in rows])
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
     task = asyncio.get_running_loop().create_task(
-        media_service.destroy([r[1] for r in rows])
+        media_service.destroy([r[1] for r in rows if r[1] not in kept])
     )
     _cleanup_tasks.add(task)
     task.add_done_callback(_cleanup_tasks.discard)
@@ -315,4 +328,10 @@ async def delete_story(
     url = story.media_url
     await session.delete(story)
     await session.commit()
-    await media_service.destroy([url])
+    in_highlight = (
+        await session.execute(
+            select(HighlightItem.id).where(HighlightItem.media_url == url).limit(1)
+        )
+    ).first()
+    if in_highlight is None:
+        await media_service.destroy([url])

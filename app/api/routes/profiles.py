@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.social_service import follow_counts
 from app.api.routes.professional import (
     EntryOut,
     record_profile_view,
@@ -268,6 +269,7 @@ async def get_public_profile(
     await record_profile_view(session, current_user.id, user.id)
 
     company = {
+        **await follow_counts(session, user.id, current_user.id),
         "headline": profile.headline if profile else None,
         "account_type": user.account_type,
         "company_verified": user.company_verified,

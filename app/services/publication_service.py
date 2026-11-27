@@ -4,6 +4,7 @@ from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.social import Follow
 from app.services.safety_service import blocked_ids_query, is_blocked
 from app.models.contact_request import ContactRequest
 from app.models.profile import Profile
@@ -49,6 +50,7 @@ async def create_publication(
     author_id: uuid.UUID,
     publication_data: PublicationCreate,
     commit: bool = True,
+    mentions: list[dict] | None = None,
 ) -> Publication:
     publication = Publication(
         author_id=author_id,
@@ -62,6 +64,7 @@ async def create_publication(
         media_items=[
             media_item.model_dump() for media_item in publication_data.media_items
         ],
+        mentions=mentions or None,
     )
 
     session.add(publication)
@@ -160,6 +163,7 @@ async def list_publications(
     only_active: bool = True,
     only_mine: bool = False,
     only_saved: bool = False,
+    following_only: bool = False,
     author_id: uuid.UUID | None = None,
     search: str | None = None,
     modality: str | None = None,
@@ -215,6 +219,13 @@ async def list_publications(
 
     if author_id is not None:
         query = query.where(Publication.author_id == author_id)
+
+    if following_only:
+        query = query.where(
+            Publication.author_id.in_(
+                select(Follow.followed_id).where(Follow.follower_id == current_user_id)
+            )
+        )
 
     if opportunities_only:
         query = query.where(

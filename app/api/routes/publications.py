@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.social_service import notify_mentions, resolve_mentions
 from app.api.routes.professional import JOB_TYPES, notify_job_alerts
 from app.core.rate_limit import rate_limit
 from app.api.dependencies import get_current_user
@@ -28,6 +29,7 @@ from app.services.publication_interaction_service import (
     delete_comment,
     get_comment,
     like_publication,
+    set_comment_liked,
     list_comments,
     set_saved,
     unlike_publication,
@@ -83,12 +85,15 @@ async def create_publication_endpoint(
             "pasantías. Cámbiala en Configuración.",
         )
 
+    mentions = await resolve_mentions(session, publication_data.mentions, current_user)
     publication = await create_publication(
         session=session,
         author_id=current_user.id,
         publication_data=publication_data,
         commit=False,
+        mentions=mentions,
     )
+    notify_mentions(session, mentions, current_user, publication.id, "una publicación")
 
     if publication.visibility != "private":
         contact_ids = await get_accepted_contact_ids(
@@ -144,6 +149,7 @@ async def list_publications_endpoint(
     publication_type: str | None = Query(default=None, alias="type"),
     mine: bool = Query(default=False, description="Solo mis publicaciones"),
     saved: bool = Query(default=False, description="Solo las que guardé"),
+    following: bool = Query(default=False, description="Solo de quienes sigo"),
     author_id: uuid.UUID | None = Query(default=None, alias="author"),
     q: str | None = Query(default=None, max_length=100, description="Buscar"),
     modality: str | None = Query(default=None, max_length=20),
@@ -163,6 +169,7 @@ async def list_publications_endpoint(
         publication_type=publication_type,
         only_mine=mine,
         only_saved=saved,
+        following_only=following,
         author_id=author_id,
         search=q,
         modality=modality,
@@ -380,7 +387,14 @@ async def create_comment_endpoint(
     session: AsyncSession = Depends(get_db_session),
 ) -> CommentResponse:
     publication = await _get_visible_publication(session, publication_id, current_user)
-    return await create_comment(session, publication, current_user, comment_data.text)
+    return await create_comment(
+        session,
+        publication,
+        current_user,
+        comment_data.text,
+        parent_id=comment_data.parent_id,
+        mention_ids=comment_data.mentions,
+    )
 
 
 @router.patch(
@@ -445,3 +459,36 @@ async def delete_comment_endpoint(
         )
 
     await delete_comment(session, comment)
+
+
+@router.post(
+    "/{publication_id}/comments/{comment_id}/like", response_model=LikeResponse
+)
+async def like_comment_endpoint(
+    publication_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> LikeResponse:
+    await _get_visible_publication(session, publication_id, current_user)
+    comment = await get_comment(session, publication_id, comment_id)
+    if comment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "El comentario no existe.")
+    count = await set_comment_liked(session, comment, current_user, liked=True)
+    return LikeResponse(liked=True, likes_count=count)
+
+
+@router.delete(
+    "/{publication_id}/comments/{comment_id}/like", response_model=LikeResponse
+)
+async def unlike_comment_endpoint(
+    publication_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> LikeResponse:
+    comment = await get_comment(session, publication_id, comment_id)
+    if comment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "El comentario no existe.")
+    count = await set_comment_liked(session, comment, current_user, liked=False)
+    return LikeResponse(liked=False, likes_count=count)
