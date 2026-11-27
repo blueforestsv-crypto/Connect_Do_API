@@ -89,6 +89,8 @@ class PublicationAuthorResponse(BaseModel):
     # Ya no se envía el correo del autor en el feed (privacidad).
     email: str = ""
     profile_image_base64: str | None = None
+    account_type: str = "student"
+    company_verified: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

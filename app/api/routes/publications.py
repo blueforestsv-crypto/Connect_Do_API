@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.routes.professional import JOB_TYPES, notify_job_alerts
 from app.core.rate_limit import rate_limit
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
@@ -74,6 +75,14 @@ async def create_publication_endpoint(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> PublicationResponse:
+    # Empleos y pasantías solo desde cuentas de empresa (evita ofertas falsas).
+    if publication_data.type in JOB_TYPES and current_user.account_type != "company":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo las cuentas de empresa pueden publicar empleos y "
+            "pasantías. Cámbiala en Configuración.",
+        )
+
     publication = await create_publication(
         session=session,
         author_id=current_user.id,
@@ -110,6 +119,8 @@ async def create_publication_endpoint(
 
             session.add(notification)
 
+        await notify_job_alerts(session, publication, _get_full_name(current_user))
+
     await session.commit()
 
     result = await session.execute(
@@ -135,6 +146,12 @@ async def list_publications_endpoint(
     saved: bool = Query(default=False, description="Solo las que guardé"),
     author_id: uuid.UUID | None = Query(default=None, alias="author"),
     q: str | None = Query(default=None, max_length=100, description="Buscar"),
+    modality: str | None = Query(default=None, max_length=20),
+    location: str | None = Query(default=None, max_length=120),
+    opportunities: bool = Query(
+        default=False, description="Solo empleos, pasantías, servicio social…"
+    ),
+    verified: bool = Query(default=False, description="Solo empresas verificadas"),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -148,6 +165,10 @@ async def list_publications_endpoint(
         only_saved=saved,
         author_id=author_id,
         search=q,
+        modality=modality,
+        location=location,
+        opportunities_only=opportunities,
+        verified_only=verified,
         limit=limit,
         offset=offset,
     )

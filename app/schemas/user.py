@@ -22,6 +22,8 @@ class UserResponse(BaseModel):
     is_verified: bool
     role: str = "user"
     has_password: bool = True
+    account_type: str = "student"
+    company_verified: bool = False
     created_at: datetime
     updated_at: datetime
 

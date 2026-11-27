@@ -79,6 +79,14 @@ class Profile(Base):
         nullable=True,
     )
 
+    # Solo empresas.
+    company_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    company_sector: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    company_size: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+    # Titular corto, p. ej. "Estudiante de Sistemas · Flutter".
+    headline: Mapped[str | None] = mapped_column(String(160), nullable=True)
+
     # Habilidades visibles en el perfil (lista de textos cortos).
     skills: Mapped[list[str] | None] = mapped_column(
         JSONB,

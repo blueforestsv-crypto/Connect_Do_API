@@ -162,6 +162,10 @@ async def list_publications(
     only_saved: bool = False,
     author_id: uuid.UUID | None = None,
     search: str | None = None,
+    modality: str | None = None,
+    location: str | None = None,
+    opportunities_only: bool = False,
+    verified_only: bool = False,
     limit: int = 20,
     offset: int = 0,
 ) -> list[Publication]:
@@ -211,6 +215,21 @@ async def list_publications(
 
     if author_id is not None:
         query = query.where(Publication.author_id == author_id)
+
+    if opportunities_only:
+        query = query.where(
+            Publication.type.in_(("job", "internship", "social_service", "freelance"))
+        )
+    if modality:
+        query = query.where(Publication.modality == modality)
+    if location and location.strip():
+        query = query.where(Publication.location.ilike(f"%{location.strip()}%"))
+    if verified_only:
+        query = query.where(
+            Publication.author_id.in_(
+                select(User.id).where(User.company_verified.is_(True))
+            )
+        )
 
     if only_saved:
         query = query.where(

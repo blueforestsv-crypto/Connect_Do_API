@@ -80,6 +80,28 @@ class User(Base):
         nullable=False,
     )
 
+    # "student" (personas) o "company" (empresas). Solo las empresas publican
+    # empleos y pasantías.
+    account_type: Mapped[str] = mapped_column(
+        String(20),
+        default="student",
+        server_default="student",
+        nullable=False,
+    )
+
+    # Empresa revisada por un moderador (insignia ✓).
+    company_verified: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
+
+    company_verification_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     # Aceptó términos y confirmó la edad mínima al registrarse.
     terms_accepted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),

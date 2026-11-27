@@ -14,6 +14,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.routes.professional import (
+    EntryOut,
+    record_profile_view,
+    skills_with_endorsements,
+)
+from app.api.routes.professional import _entries as professional_entries
 from app.services.safety_service import is_blocked
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
@@ -258,6 +264,18 @@ async def get_public_profile(
     show_private = is_me or contact_status == "accepted"
     is_private = bool(profile and profile.is_private)
 
+    # Cuenta para "quién vio tu perfil" (una vez por persona y día).
+    await record_profile_view(session, current_user.id, user.id)
+
+    company = {
+        "headline": profile.headline if profile else None,
+        "account_type": user.account_type,
+        "company_verified": user.company_verified,
+        "company_name": profile.company_name if profile else None,
+        "company_sector": profile.company_sector if profile else None,
+        "company_size": profile.company_size if profile else None,
+    }
+
     if is_private and not show_private:
         return PublicProfileResponse(
             user_id=user.id,
@@ -268,6 +286,7 @@ async def get_public_profile(
             university=profile.university if profile else None,
             is_private=True,
             limited=True,
+            **company,
             contact_status=contact_status,
             contact_request_id=request_id,
         )
@@ -294,6 +313,20 @@ async def get_public_profile(
         phone=(profile.phone if profile else None) if show_private else None,
         is_me=is_me,
         is_private=is_private,
+        entries=[
+            EntryOut.model_validate(entry).model_dump(mode="json")
+            for entry in await professional_entries(session, user.id)
+        ],
+        skill_details=[
+            item.model_dump()
+            for item in await skills_with_endorsements(
+                session,
+                user.id,
+                (profile.skills or []) if profile else [],
+                current_user.id,
+            )
+        ],
+        **company,
         contact_status=contact_status,
         contact_request_id=request_id,
     )

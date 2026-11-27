@@ -1,3 +1,4 @@
+from typing import Any
 import uuid
 from datetime import datetime
 
@@ -5,6 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ProfileUpdate(BaseModel):
+    headline: str | None = Field(default=None, max_length=160)
+    company_sector: str | None = Field(default=None, max_length=120)
+    company_size: str | None = Field(default=None, max_length=30)
     phone: str | None = Field(
         default=None,
         max_length=30,
@@ -74,6 +78,10 @@ class ProfileResponse(BaseModel):
     profile_image_base64: str | None
     cv_url: str | None
     skills: list[str] | None = None
+    headline: str | None = None
+    company_name: str | None = None
+    company_sector: str | None = None
+    company_size: str | None = None
     is_private: bool
 
     created_at: datetime
@@ -99,6 +107,17 @@ class PublicProfileResponse(BaseModel):
     portfolio_url: str | None = None
     skills: list[str] = []
     has_cv: bool = False
+
+    headline: str | None = None
+    account_type: str = "student"
+    company_verified: bool = False
+    company_name: str | None = None
+    company_sector: str | None = None
+    company_size: str | None = None
+    # Experiencia, formación, certificaciones… (ver /profiles/me/entries).
+    entries: list[dict[str, Any]] = []
+    # Habilidades con cuántos contactos las validaron.
+    skill_details: list[dict[str, Any]] = []
 
     email: str | None = None
     phone: str | None = None
