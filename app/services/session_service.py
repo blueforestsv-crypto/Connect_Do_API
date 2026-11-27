@@ -1,3 +1,4 @@
+from urllib.parse import unquote
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -35,7 +36,8 @@ async def create_user_refresh_token(
         jti=jti,
         token_hash=hash_token(refresh_token),
         expires_at=expires_at,
-        device_name=(device_name or "").strip()[:80] or None,
+        # La app lo manda codificado (los encabezados solo admiten ASCII).
+        device_name=unquote(device_name or "").strip()[:80] or None,
         last_used_at=datetime.now(UTC),
     )
 

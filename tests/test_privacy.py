@@ -65,7 +65,8 @@ async def test_sesiones_activas(client):
     await make_user(client, "ana@ues.edu.sv", "Ana")
     phone = await client.post(
         "/auth/login",
-        headers={"X-Device-Name": "Android"},
+        # La app lo manda codificado: los encabezados solo admiten ASCII.
+        headers={"X-Device-Name": "Tel%C3%A9fono%20Android"},
         json={"email": "ana@ues.edu.sv", "password": "Connect2026!"},
     )
     web = await client.post(
@@ -75,7 +76,7 @@ async def test_sesiones_activas(client):
     )
     auth = {"Authorization": f"Bearer {phone.json()['access_token']}"}
     sessions = (await client.get("/auth/sessions", headers=auth)).json()
-    assert {"Android", "Navegador web"} <= {s["device_name"] for s in sessions}
+    assert {"Teléfono Android", "Navegador web"} <= {s["device_name"] for s in sessions}
 
     keep = _jti(phone.json()["refresh_token"])
     await client.post(
