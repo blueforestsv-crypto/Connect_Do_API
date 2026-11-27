@@ -118,6 +118,8 @@ class PublicProfileResponse(BaseModel):
     following_count: int = 0
     is_following: bool = False
     follows_me: bool = False
+    # Permite que cualquiera le escriba (Privacidad).
+    accepts_messages: bool = False
     # Experiencia, formación, certificaciones… (ver /profiles/me/entries).
     entries: list[dict[str, Any]] = []
     # Habilidades con cuántos contactos las validaron.

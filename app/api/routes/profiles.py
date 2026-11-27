@@ -290,6 +290,7 @@ async def get_public_profile(
             limited=True,
             **company,
             contact_status=contact_status,
+            accepts_messages=user.message_privacy == "everyone",
             contact_request_id=request_id,
         )
 
@@ -330,6 +331,7 @@ async def get_public_profile(
         ],
         **company,
         contact_status=contact_status,
+        accepts_messages=user.message_privacy == "everyone",
         contact_request_id=request_id,
     )
 
