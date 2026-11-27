@@ -47,6 +47,19 @@ class Message(Base):
     # width, height, duration (segundos), size_bytes.
     attachment_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # Responder citando otro mensaje.
+    reply_to_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Reacciones: {user_id: emoji}.
+    reactions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # "Eliminado para todos".
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     is_read: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -59,6 +72,14 @@ class Message(Base):
         server_default=func.now(),
         nullable=False,
         index=True,
+    )
+
+    # Se carga junto con el mensaje (solo un nivel).
+    reply_to: Mapped["Message | None"] = relationship(
+        "Message",
+        remote_side="Message.id",
+        lazy="selectin",
+        join_depth=1,
     )
 
     sender: Mapped["User"] = relationship(

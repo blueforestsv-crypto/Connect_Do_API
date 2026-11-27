@@ -1,11 +1,13 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, case, func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.services import media_service
+from app.services.realtime import hub, now_iso
 from app.core.rate_limit import rate_limit
 from app.services.safety_service import blocked_ids, is_blocked
 from app.api.dependencies import get_current_user
@@ -17,6 +19,8 @@ from app.models.user import User
 from app.services import push_service
 from app.schemas.chat import (
     MessageAttachmentResponse,
+    ReactionIn,
+    ReplyPreview,
     ChatUserResponse,
     ConversationResponse,
     MessageCreate,
@@ -57,15 +61,36 @@ def _build_chat_user(user: User, include_images: bool = True) -> ChatUserRespons
     )
 
 
+def reply_preview(message) -> ReplyPreview | None:
+    """Vista corta del mensaje citado (sirve para 1 a 1 y grupos)."""
+    original = message.__dict__.get("reply_to")
+    if original is None:
+        return None
+    deleted = original.deleted_at is not None
+    return ReplyPreview(
+        id=original.id,
+        sender_id=original.sender_id,
+        content="" if deleted else (original.content or "")[:160],
+        attachment_type=None if deleted else original.attachment_type,
+        is_deleted=deleted,
+    )
+
+
 def _build_message(message: Message, include_images: bool = True) -> MessageResponse:
     # Se construye a mano (sin model_validate) para no tocar la columna
     # diferida de la imagen cuando include_images es False.
+    deleted = message.deleted_at is not None
     return MessageResponse(
         id=message.id,
         sender_id=message.sender_id,
         receiver_id=message.receiver_id,
-        content=message.content,
-        attachment=(
+        content="" if deleted else message.content,
+        reply_to=reply_preview(message),
+        reactions={} if deleted else (message.reactions or {}),
+        is_deleted=deleted,
+        attachment=None
+        if deleted
+        else (
             MessageAttachmentResponse(
                 type=message.attachment_type,
                 url=message.attachment_url,
@@ -445,10 +470,21 @@ async def send_message_to_contact(
     clean_content = message_data.content.strip()
     attachment = message_data.attachment
 
+    reply_to_id = None
+    if message_data.reply_to_id is not None:
+        original = await session.get(Message, message_data.reply_to_id)
+        # Solo se cita un mensaje de esta misma conversación.
+        if original is not None and {original.sender_id, original.receiver_id} == {
+            current_user.id,
+            contact.id,
+        }:
+            reply_to_id = original.id
+
     message = Message(
         sender_id=current_user.id,
         receiver_id=contact.id,
         content=clean_content,
+        reply_to_id=reply_to_id,
         attachment_type=attachment.type if attachment else None,
         attachment_url=attachment.url if attachment else None,
         attachment_meta=attachment.meta() if attachment else None,
@@ -505,7 +541,13 @@ async def send_message_to_contact(
 
     created_message = result.unique().scalar_one()
 
-    return _build_message(created_message, include_images)
+    response = _build_message(created_message, include_images)
+    # Llega al instante a la otra persona (y a mis otros teléfonos).
+    await hub.send(
+        [contact.id, current_user.id],
+        {"type": "message", "message": response.model_dump(mode="json")},
+    )
+    return response
 
 
 @router.patch(
@@ -547,6 +589,85 @@ async def mark_messages_as_read(
 
     await session.commit()
 
+    if result.rowcount:
+        # ✓✓ al instante en el teléfono de quien escribió.
+        await hub.send(
+            [contact.id],
+            {"type": "read", "by": str(current_user.id), "at": now_iso()},
+        )
+
     return {
         "updated": result.rowcount or 0,
     }
+
+
+async def _own_conversation_message(
+    session: AsyncSession, message_id: uuid.UUID, user: User
+) -> Message:
+    message = await session.get(Message, message_id)
+    if message is None or user.id not in (message.sender_id, message.receiver_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "El mensaje no existe.")
+    return message
+
+
+@router.post(
+    "/messages/{message_id}/react",
+    summary="Reaccionar a un mensaje (o quitar la reacción)",
+)
+async def react_to_message(
+    message_id: uuid.UUID,
+    data: ReactionIn,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, dict[str, str]]:
+    message = await _own_conversation_message(session, message_id, current_user)
+    if message.deleted_at is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "El mensaje fue eliminado.")
+    reactions = dict(message.reactions or {})
+    emoji = (data.emoji or "").strip()
+    if emoji:
+        reactions[str(current_user.id)] = emoji
+    else:
+        reactions.pop(str(current_user.id), None)
+    message.reactions = reactions or None
+    await session.commit()
+    await hub.send(
+        [message.sender_id, message.receiver_id],
+        {"type": "reaction", "message_id": str(message.id), "reactions": reactions},
+    )
+    return {"reactions": reactions}
+
+
+@router.delete(
+    "/messages/{message_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar un mensaje para todos (solo quien lo envió)",
+)
+async def delete_message_for_everyone(
+    message_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> None:
+    message = await _own_conversation_message(session, message_id, current_user)
+    if message.sender_id != current_user.id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Solo puedes eliminar tus mensajes."
+        )
+    if message.deleted_at is not None:
+        return
+    url = message.attachment_url
+    message.deleted_at = datetime.now(UTC)
+    message.content = ""
+    message.attachment_type = None
+    message.attachment_url = None
+    message.attachment_meta = None
+    message.reactions = None
+    await session.commit()
+    await hub.send(
+        [message.sender_id, message.receiver_id],
+        {"type": "deleted", "message_id": str(message.id)},
+    )
+    # El archivo se borra si no está en uso en otra parte (p. ej. un sticker
+    # o una historia reenviada usan su propio enlace).
+    if url and "/connect_do/chat/" in url:
+        await media_service.destroy([url])

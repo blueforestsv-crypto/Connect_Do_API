@@ -35,6 +35,7 @@ import app.models.contact_request  # noqa: E402,F401
 import app.models.cv_file  # noqa: E402,F401
 import app.models.device_token  # noqa: E402,F401
 import app.models.professional  # noqa: E402,F401
+import app.models.chat_group  # noqa: E402,F401
 import app.models.safety  # noqa: E402,F401
 import app.models.social  # noqa: E402,F401
 import app.models.sticker  # noqa: E402,F401

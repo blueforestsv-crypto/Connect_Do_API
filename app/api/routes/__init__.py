@@ -3,6 +3,8 @@ from app.api.routes.devices import router as devices_router
 from app.api.routes.legal import router as legal_router
 from app.api.routes.media import router as media_router
 from app.api.routes.professional import router as professional_router
+from app.api.routes.groups import router as groups_router
+from app.api.routes.realtime import router as realtime_router
 from app.api.routes.safety import router as safety_router
 from app.api.routes.social import router as social_router
 from app.api.routes.stickers import router as stickers_router
@@ -23,6 +25,8 @@ __all__ = [
     "stories_router",
     "stickers_router",
     "safety_router",
+    "realtime_router",
+    "groups_router",
     "social_router",
     "professional_router",
     "auth_router",

@@ -11,6 +11,7 @@ from app.models.professional import (
     ProfileView,
     SkillEndorsement,
 )
+from app.models.chat_group import ChatGroup, ChatGroupMember, GroupMessage
 from app.models.safety import Report, UserBlock
 from app.models.social import CommentLike, Follow, Highlight, HighlightItem
 from app.models.sticker import Sticker
@@ -29,6 +30,9 @@ __all__ = [
     "Sticker",
     "Report",
     "UserBlock",
+    "ChatGroup",
+    "ChatGroupMember",
+    "GroupMessage",
     "CommentLike",
     "Follow",
     "Highlight",

@@ -102,6 +102,12 @@ class User(Base):
         nullable=True,
     )
 
+    # Última vez conectado (para "últ. vez hace 5 min").
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     # Aceptó términos y confirmó la edad mínima al registrarse.
     terms_accepted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),

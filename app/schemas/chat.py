@@ -46,6 +46,8 @@ class MessageCreate(BaseModel):
 
     content: str = Field(default="", max_length=2000)
     attachment: MessageAttachment | None = None
+    # Responder citando un mensaje.
+    reply_to_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def not_empty(self) -> "MessageCreate":
@@ -63,6 +65,14 @@ class MessageAttachmentResponse(BaseModel):
     size_bytes: int | None = None
 
 
+class ReplyPreview(BaseModel):
+    id: uuid.UUID
+    sender_id: uuid.UUID | None = None
+    content: str = ""
+    attachment_type: str | None = None
+    is_deleted: bool = False
+
+
 class MessageResponse(BaseModel):
     id: uuid.UUID
     sender_id: uuid.UUID
@@ -71,11 +81,20 @@ class MessageResponse(BaseModel):
     attachment: MessageAttachmentResponse | None = None
     is_read: bool
     created_at: datetime
+    reply_to: ReplyPreview | None = None
+    # {user_id: emoji}
+    reactions: dict[str, str] = {}
+    is_deleted: bool = False
 
     sender: ChatUserResponse
     receiver: ChatUserResponse
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ReactionIn(BaseModel):
+    # None o "" quita mi reacción.
+    emoji: str | None = Field(default=None, max_length=16)
 
 
 class ConversationResponse(BaseModel):
