@@ -1,7 +1,7 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limit import rate_limit
@@ -104,6 +104,7 @@ async def register_user(
 async def login_user(
     login_data: LoginRequest,
     session: AsyncSession = Depends(get_db_session),
+    x_device_name: str | None = Header(default=None, max_length=80),
 ) -> TokenResponse:
     user = await authenticate_user(
         session=session,
@@ -125,6 +126,7 @@ async def login_user(
     refresh_token = await create_user_refresh_token(
         session=session,
         user_id=user.id,
+        device_name=x_device_name,
     )
 
     return TokenResponse(
@@ -145,6 +147,7 @@ async def login_user(
 async def google_auth(
     request_data: GoogleAuthRequest,
     session: AsyncSession = Depends(get_db_session),
+    x_device_name: str | None = Header(default=None, max_length=80),
 ) -> GoogleAuthResponse:
     try:
         identity = await verify_google_id_token(request_data.id_token)
@@ -176,6 +179,7 @@ async def google_auth(
     refresh_token = await create_user_refresh_token(
         session=session,
         user_id=user.id,
+        device_name=x_device_name,
     )
 
     return GoogleAuthResponse(
@@ -228,6 +232,14 @@ async def refresh_access_token(
 
     if user is None or not user.is_active:
         raise credentials_exception
+
+    # "Último uso" de la sesión (como mucho una escritura cada 10 min).
+    now = datetime.now(UTC)
+    if token_record.last_used_at is None or now - token_record.last_used_at > timedelta(
+        minutes=10
+    ):
+        token_record.last_used_at = now
+        await session.commit()
 
     access_token = create_access_token(
         subject=str(user.id),

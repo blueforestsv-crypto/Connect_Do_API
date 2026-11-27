@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.social import Follow
 from app.models.social import HighlightItem
 from app.api.dependencies import get_current_user
 from app.db.session import get_db_session
@@ -185,6 +186,17 @@ async def list_stories(
     author_ids = [
         current_user.id,
         *await get_accepted_contact_ids(session, current_user.id),
+        # Personas que sigo y que comparten sus historias con seguidores.
+        *(
+            await session.execute(
+                select(User.id)
+                .join(Follow, Follow.followed_id == User.id)
+                .where(
+                    Follow.follower_id == current_user.id,
+                    User.story_privacy == "followers",
+                )
+            )
+        ).scalars(),
     ]
     result = await session.execute(
         select(Story)
@@ -269,11 +281,23 @@ async def _visible_story(
     story = await session.get(Story, story_id)
     if story is None or story.expires_at <= _now():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "La historia ya no existe.")
-    if story.user_id != user.id and story.user_id not in await get_accepted_contact_ids(
-        session, user.id
+    if story.user_id != user.id and not await _can_see_stories_of(
+        session, user.id, story.user_id
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "La historia ya no existe.")
     return story
+
+
+async def _can_see_stories_of(
+    session: AsyncSession, viewer_id: uuid.UUID, author_id: uuid.UUID
+) -> bool:
+    if author_id in await get_accepted_contact_ids(session, viewer_id):
+        return True
+    author = await session.get(User, author_id)
+    if author is None or author.story_privacy != "followers":
+        return False
+    follows = await session.get(Follow, (viewer_id, author_id))
+    return follows is not None
 
 
 @router.post("/{story_id}/view", status_code=status.HTTP_204_NO_CONTENT)

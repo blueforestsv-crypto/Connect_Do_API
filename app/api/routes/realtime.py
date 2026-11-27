@@ -49,7 +49,11 @@ async def presence(
     session: AsyncSession = Depends(get_db_session),
 ) -> Presence:
     user = await session.get(User, contact_id)
-    if user is None or await is_blocked(session, current_user.id, contact_id):
+    if (
+        user is None
+        or not user.show_presence
+        or await is_blocked(session, current_user.id, contact_id)
+    ):
         return Presence(online=False)
     return Presence(online=hub.is_online(contact_id), last_seen_at=user.last_seen_at)
 
@@ -70,11 +74,13 @@ async def realtime_socket(socket: WebSocket) -> None:
             await socket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
         contacts = await _contact_ids(session, user_id)
+        # Si oculta su estado, nadie recibe sus avisos de en línea.
+        announce = contacts if user.show_presence else []
 
     await socket.accept()
     if await hub.connect(user_id, socket):
         await hub.send(
-            contacts, {"type": "presence", "user_id": str(user_id), "online": True}
+            announce, {"type": "presence", "user_id": str(user_id), "online": True}
         )
 
     try:
@@ -96,7 +102,7 @@ async def realtime_socket(socket: WebSocket) -> None:
                 )
                 await session.commit()
             await hub.send(
-                contacts,
+                announce,
                 {
                     "type": "presence",
                     "user_id": str(user_id),

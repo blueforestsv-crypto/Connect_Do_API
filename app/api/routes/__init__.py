@@ -4,6 +4,7 @@ from app.api.routes.legal import router as legal_router
 from app.api.routes.media import router as media_router
 from app.api.routes.professional import router as professional_router
 from app.api.routes.groups import router as groups_router
+from app.api.routes.privacy import router as privacy_router
 from app.api.routes.realtime import router as realtime_router
 from app.api.routes.safety import router as safety_router
 from app.api.routes.social import router as social_router
@@ -27,6 +28,7 @@ __all__ = [
     "safety_router",
     "realtime_router",
     "groups_router",
+    "privacy_router",
     "social_router",
     "professional_router",
     "auth_router",

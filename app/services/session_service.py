@@ -16,6 +16,7 @@ from app.services.security import (
 async def create_user_refresh_token(
     session: AsyncSession,
     user_id: uuid.UUID,
+    device_name: str | None = None,
 ) -> str:
     jti = generate_jti()
 
@@ -34,6 +35,8 @@ async def create_user_refresh_token(
         jti=jti,
         token_hash=hash_token(refresh_token),
         expires_at=expires_at,
+        device_name=(device_name or "").strip()[:80] or None,
+        last_used_at=datetime.now(UTC),
     )
 
     session.add(token_record)

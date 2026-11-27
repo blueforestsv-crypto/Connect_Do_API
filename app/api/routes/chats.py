@@ -205,8 +205,12 @@ async def _can_chat(
         user_a_id=user_a_id,
         user_b_id=user_b_id,
     )
+    if has_existing_conversation:
+        return True
 
-    return has_existing_conversation
+    # Si la otra persona permite que cualquiera le escriba.
+    other = await session.get(User, user_b_id)
+    return other is not None and other.message_privacy == "everyone"
 
 
 async def _get_contact_or_404(

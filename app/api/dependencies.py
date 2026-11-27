@@ -41,3 +41,21 @@ async def get_current_user(
         raise credentials_exception
 
     return user
+
+
+_optional_bearer = HTTPBearer(auto_error=False)
+
+
+async def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
+    session: AsyncSession = Depends(get_db_session),
+) -> User | None:
+    """El usuario si mandó un token válido; si no, None (sin error)."""
+    if credentials is None:
+        return None
+    try:
+        user_id = uuid.UUID(decode_access_token(credentials.credentials)["sub"])
+    except (ValueError, KeyError, TypeError):
+        return None
+    user = await get_user_by_id(session=session, user_id=user_id)
+    return user if user is not None and user.is_active else None

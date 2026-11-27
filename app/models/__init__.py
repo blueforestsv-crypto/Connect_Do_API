@@ -11,6 +11,7 @@ from app.models.professional import (
     ProfileView,
     SkillEndorsement,
 )
+from app.models.client_error import ClientError
 from app.models.chat_group import ChatGroup, ChatGroupMember, GroupMessage
 from app.models.safety import Report, UserBlock
 from app.models.social import CommentLike, Follow, Highlight, HighlightItem
@@ -33,6 +34,7 @@ __all__ = [
     "ChatGroup",
     "ChatGroupMember",
     "GroupMessage",
+    "ClientError",
     "CommentLike",
     "Follow",
     "Highlight",

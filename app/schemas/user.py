@@ -24,6 +24,9 @@ class UserResponse(BaseModel):
     has_password: bool = True
     account_type: str = "student"
     company_verified: bool = False
+    message_privacy: str = "contacts"
+    story_privacy: str = "contacts"
+    show_presence: bool = True
     created_at: datetime
     updated_at: datetime
 

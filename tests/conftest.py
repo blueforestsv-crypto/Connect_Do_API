@@ -27,27 +27,11 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-with-enough-length-123"
 from app.core.config import settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import get_db_session  # noqa: E402
-from app.main import app  # noqa: E402
 
-# Registrar todos los modelos en Base.metadata.
-import app.models.application  # noqa: E402,F401
-import app.models.contact_request  # noqa: E402,F401
-import app.models.cv_file  # noqa: E402,F401
-import app.models.device_token  # noqa: E402,F401
-import app.models.professional  # noqa: E402,F401
-import app.models.chat_group  # noqa: E402,F401
-import app.models.safety  # noqa: E402,F401
-import app.models.social  # noqa: E402,F401
-import app.models.sticker  # noqa: E402,F401
-import app.models.story  # noqa: E402,F401
-import app.models.email_verification_token  # noqa: E402,F401
-import app.models.message  # noqa: E402,F401
-import app.models.notification  # noqa: E402,F401
-import app.models.profile  # noqa: E402,F401
-import app.models.publication  # noqa: E402,F401
-import app.models.publication_interaction  # noqa: E402,F401
-import app.models.refresh_token  # noqa: E402,F401
-import app.models.user  # noqa: E402,F401
+# Registrar todos los modelos en Base.metadata (antes de importar `app`:
+# un "import app.models.x" posterior taparía la aplicación con el paquete).
+import app.models  # noqa: E402,F401
+from app.main import app  # noqa: E402
 
 
 def _read_test_database_url() -> str:

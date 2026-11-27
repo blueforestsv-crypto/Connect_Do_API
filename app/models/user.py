@@ -102,6 +102,18 @@ class User(Base):
         nullable=True,
     )
 
+    # Privacidad: quién me escribe ("contacts" | "everyone"), quién ve mis
+    # historias ("contacts" | "followers") y si muestro "en línea".
+    message_privacy: Mapped[str] = mapped_column(
+        String(10), default="contacts", server_default="contacts", nullable=False
+    )
+    story_privacy: Mapped[str] = mapped_column(
+        String(10), default="contacts", server_default="contacts", nullable=False
+    )
+    show_presence: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
+
     # Última vez conectado (para "últ. vez hace 5 min").
     last_seen_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),

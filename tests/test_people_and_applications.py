@@ -40,6 +40,12 @@ async def upload_cv(client, headers, name="cv.pdf", data=PDF):
 
 
 async def make_job(client, headers) -> str:
+    # Solo las cuentas de empresa publican empleos.
+    await client.put(
+        "/auth/account-type",
+        headers=headers,
+        json={"account_type": "company", "company_name": "Empresa SV"},
+    )
     response = await client.post(
         "/publications",
         headers=headers,
