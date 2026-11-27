@@ -9,6 +9,8 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.schemas.chat import LocationUpdate
+from app.api.routes.chats import apply_live_location
 from app.api.dependencies import get_current_user
 from app.api.routes.chats import message_preview
 from app.core.rate_limit import rate_limit
@@ -657,3 +659,54 @@ async def delete_group_message(
     )
     if url and "/connect_do/chat/" in url:
         await media_service.destroy([url])
+
+
+async def _own_group_live_location(
+    session: AsyncSession, message_id: uuid.UUID, user: User
+) -> GroupMessage:
+    message = await _own_group_message(session, message_id, user)
+    if message.sender_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo quien la comparte.")
+    return message
+
+
+async def _broadcast_location(session, message: GroupMessage, attachment: dict):
+    await hub.send(
+        await _member_ids(session, message.group_id),
+        {
+            "type": "location",
+            "group_id": str(message.group_id),
+            "message_id": str(message.id),
+            "attachment": attachment,
+        },
+    )
+
+
+@router.patch(
+    "/messages/{message_id}/location",
+    dependencies=[Depends(rate_limit("live_location", 40, 60))],
+)
+async def update_group_live_location(
+    message_id: uuid.UUID,
+    data: LocationUpdate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    message = await _own_group_live_location(session, message_id, current_user)
+    attachment = apply_live_location(message, data.lat, data.lng)
+    await session.commit()
+    await _broadcast_location(session, message, attachment)
+    return attachment
+
+
+@router.post("/messages/{message_id}/location/stop")
+async def stop_group_live_location(
+    message_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    message = await _own_group_live_location(session, message_id, current_user)
+    attachment = apply_live_location(message, None, None)
+    await session.commit()
+    await _broadcast_location(session, message, attachment)
+    return attachment

@@ -23,7 +23,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 MediaPurpose = Literal["post", "avatar", "chat", "story", "sticker"]
-MediaKind = Literal["image", "video", "audio"]
+MediaKind = Literal["image", "video", "audio", "file"]
 
 _FORMATS: dict[str, str] = {
     "image": "jpg,jpeg,png,webp,heic,heif,gif",
@@ -31,6 +31,8 @@ _FORMATS: dict[str, str] = {
     # Android graba AAC dentro de un contenedor MPEG-4: Cloudinary lo
     # identifica como "mp4" aunque el archivo se llame .m4a.
     "audio": "mp4,m4a,aac,mp3,wav,ogg,oga,opus,webm,3gp,amr,flac,caf",
+    # Documentos (se suben como "raw": Cloudinary no los transforma).
+    "file": "pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,zip,rar,odt,ods,odp,rtf",
 }
 
 # Límites que la app respeta antes de subir (Cloudinary gratis: 10 MB por
@@ -39,13 +41,14 @@ MAX_BYTES: dict[str, int] = {
     "image": 10 * 1024 * 1024,
     "video": 60 * 1024 * 1024,
     "audio": 10 * 1024 * 1024,
+    "file": 10 * 1024 * 1024,
 }
 
 # Qué tipos acepta cada uso.
 _ALLOWED: dict[str, set[str]] = {
     "post": {"image", "video"},
     "avatar": {"image"},
-    "chat": {"image", "video", "audio"},
+    "chat": {"image", "video", "audio", "file"},
     "story": {"image", "video"},
     "sticker": {"image"},
 }
@@ -77,13 +80,16 @@ def sign_upload(user_id: uuid.UUID, purpose: str, kind: str) -> dict:
     if not is_enabled():
         raise MediaNotConfiguredError("Cloudinary no está configurado.")
 
-    # Cloudinary trata el audio como "video".
-    resource_type = "image" if kind == "image" else "video"
+    # Cloudinary trata el audio como "video" y los documentos como "raw".
+    resource_type = {"image": "image", "file": "raw"}.get(kind, "video")
     params = {
         "folder": f"connect_do/{purpose}/{user_id}",
         "timestamp": str(int(time.time())),
-        "allowed_formats": _FORMATS[kind],
     }
+    # En "raw" Cloudinary no revisa formatos: la extensión se valida al
+    # enviar el mensaje (ver is_allowed_file).
+    if kind != "file":
+        params["allowed_formats"] = _FORMATS[kind]
 
     return {
         "upload_url": (
@@ -94,8 +100,20 @@ def sign_upload(user_id: uuid.UUID, purpose: str, kind: str) -> dict:
         "signature": _sign(params),
         "max_bytes": MAX_BYTES[kind],
         "resource_type": resource_type,
+        "allowed_formats": _FORMATS[kind],
         **params,
+        # Exactamente lo firmado: la app manda estos campos y nada más (si
+        # manda uno que no está en la firma, Cloudinary rechaza la subida).
+        "signed_fields": dict(params),
     }
+
+
+def is_allowed_file(url: str) -> bool:
+    """Documento subido como raw con una extensión permitida."""
+    if "/raw/upload/" not in url:
+        return False
+    extension = url.rsplit(".", 1)[-1].lower() if "." in url else ""
+    return extension in _FORMATS["file"].split(",")
 
 
 def is_own_url(url: str | None) -> bool:
@@ -109,13 +127,24 @@ def is_own_url(url: str | None) -> bool:
 _PUBLIC_ID = re.compile(r"/upload/(?:[^/]+/)*?(?:v\d+/)?(connect_do/.+?)(?:\.\w+)?$")
 
 
+_RAW_PUBLIC_ID = re.compile(r"/raw/upload/(?:v\d+/)?(connect_do/.+)$")
+
+
 def public_id_from_url(url: str) -> str | None:
+    # En "raw" la extensión es parte del public_id.
+    if "/raw/upload/" in url:
+        match = _RAW_PUBLIC_ID.search(url)
+        return match.group(1) if match else None
     match = _PUBLIC_ID.search(url)
     return match.group(1) if match else None
 
 
 def resource_type_from_url(url: str) -> str:
-    return "image" if "/image/upload/" in url else "video"
+    if "/image/upload/" in url:
+        return "image"
+    if "/raw/upload/" in url:
+        return "raw"
+    return "video"
 
 
 async def destroy(urls: list[str]) -> None:

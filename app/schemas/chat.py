@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, UTC
 
 from typing import Literal
 
@@ -20,25 +20,52 @@ class ChatUserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+LIVE_LOCATION_MAX_MINUTES = 8 * 60
+
+
+def maps_url(lat: float, lng: float) -> str:
+    return f"https://www.google.com/maps?q={lat:.6f},{lng:.6f}"
+
+
 class MessageAttachment(BaseModel):
-    type: Literal["image", "video", "audio", "sticker"]
-    url: str = Field(max_length=500)
+    type: Literal["image", "video", "audio", "sticker", "file", "location"]
+    # La ubicación no sube archivo: el enlace lo arma el servidor.
+    url: str = Field(default="", max_length=500)
     width: int | None = Field(default=None, ge=0)
     height: int | None = Field(default=None, ge=0)
     duration: float | None = Field(default=None, ge=0)
     size_bytes: int | None = Field(default=None, ge=0)
+    # Documento: nombre original del archivo.
+    name: str | None = Field(default=None, max_length=120)
+    # Ubicación.
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
+    # Ubicación en tiempo real: por cuántos minutos se comparte.
+    live_minutes: int | None = Field(default=None, ge=1, le=LIVE_LOCATION_MAX_MINUTES)
 
     @model_validator(mode="after")
     def check_url(self) -> "MessageAttachment":
+        if self.type == "location":
+            if self.lat is None or self.lng is None:
+                raise ValueError("Falta la ubicación.")
+            self.url = maps_url(self.lat, self.lng)
+            return self
         if not media_service.is_own_url(self.url):
             raise ValueError("El archivo debe subirse con la app.")
+        if self.type == "file" and not media_service.is_allowed_file(self.url):
+            raise ValueError("Ese tipo de documento no se permite.")
         return self
 
     def meta(self) -> dict:
-        return self.model_dump(
-            include={"width", "height", "duration", "size_bytes"},
+        data = self.model_dump(
+            include={"width", "height", "duration", "size_bytes", "name", "lat", "lng"},
             exclude_none=True,
         )
+        if self.type == "location" and self.live_minutes:
+            data["live_until"] = (
+                datetime.now(UTC) + timedelta(minutes=self.live_minutes)
+            ).isoformat()
+        return data
 
 
 class MessageCreate(BaseModel):
@@ -63,6 +90,17 @@ class MessageAttachmentResponse(BaseModel):
     height: int | None = None
     duration: float | None = None
     size_bytes: int | None = None
+    name: str | None = None
+    lat: float | None = None
+    lng: float | None = None
+    # Ubicación en tiempo real: hasta cuándo se actualiza.
+    live_until: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class LocationUpdate(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
 
 
 class ReplyPreview(BaseModel):

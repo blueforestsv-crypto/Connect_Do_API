@@ -6,6 +6,7 @@ from sqlalchemy import and_, case, func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.schemas.chat import LocationUpdate, maps_url
 from app.services import media_service
 from app.services.realtime import hub, now_iso
 from app.core.rate_limit import rate_limit
@@ -111,6 +112,8 @@ _ATTACHMENT_LABELS = {
     "video": "🎥 Video",
     "audio": "🎤 Nota de voz",
     "sticker": "💟 Sticker",
+    "file": "📄 Documento",
+    "location": "📍 Ubicación",
 }
 
 
@@ -675,3 +678,77 @@ async def delete_message_for_everyone(
     # o una historia reenviada usan su propio enlace).
     if url and "/connect_do/chat/" in url:
         await media_service.destroy([url])
+
+
+def apply_live_location(message, lat: float | None, lng: float | None) -> dict:
+    """Mueve (o detiene, sin lat/lng) una ubicación en tiempo real.
+    Sirve para mensajes 1 a 1 y de grupo. Devuelve el adjunto actualizado."""
+    meta = dict(message.attachment_meta or {})
+    now = datetime.now(UTC)
+    live_until = meta.get("live_until")
+    if (
+        message.attachment_type != "location"
+        or message.deleted_at is not None
+        or not live_until
+        or datetime.fromisoformat(live_until) <= now
+    ):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Esta ubicación ya no se está compartiendo."
+        )
+    if lat is None or lng is None:
+        meta["live_until"] = now.isoformat()
+    else:
+        meta["lat"], meta["lng"] = lat, lng
+        message.attachment_url = maps_url(lat, lng)
+    meta["updated_at"] = now.isoformat()
+    message.attachment_meta = meta
+    return {"type": "location", "url": message.attachment_url, **meta}
+
+
+async def _own_live_location(
+    session: AsyncSession, message_id: uuid.UUID, user: User
+) -> Message:
+    message = await _own_conversation_message(session, message_id, user)
+    if message.sender_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo quien la comparte.")
+    return message
+
+
+@router.patch(
+    "/messages/{message_id}/location",
+    summary="Actualizar mi ubicación en tiempo real",
+    dependencies=[Depends(rate_limit("live_location", 40, 60))],
+)
+async def update_live_location(
+    message_id: uuid.UUID,
+    data: LocationUpdate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    message = await _own_live_location(session, message_id, current_user)
+    attachment = apply_live_location(message, data.lat, data.lng)
+    await session.commit()
+    await hub.send(
+        [message.sender_id, message.receiver_id],
+        {"type": "location", "message_id": str(message.id), "attachment": attachment},
+    )
+    return attachment
+
+
+@router.post(
+    "/messages/{message_id}/location/stop",
+    summary="Dejar de compartir mi ubicación",
+)
+async def stop_live_location(
+    message_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    message = await _own_live_location(session, message_id, current_user)
+    attachment = apply_live_location(message, None, None)
+    await session.commit()
+    await hub.send(
+        [message.sender_id, message.receiver_id],
+        {"type": "location", "message_id": str(message.id), "attachment": attachment},
+    )
+    return attachment

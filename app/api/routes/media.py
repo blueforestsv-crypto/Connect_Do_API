@@ -24,6 +24,7 @@ class MediaSignResponse(BaseModel):
     allowed_formats: str
     resource_type: str
     max_bytes: int
+    signed_fields: dict[str, str] = {}
 
 
 class MediaStatus(BaseModel):
